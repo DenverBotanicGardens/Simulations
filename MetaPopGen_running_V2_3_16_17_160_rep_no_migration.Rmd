@@ -1,0 +1,253 @@
+---
+title: "Running MetaPopGen v2"
+author: "Jessie Berta-Thompson"
+date: "March 16, 2017; March 22, 2017"
+output: html_document
+---
+
+Purpose of this version, immediate tasks:
+To explore making this multilocus and replicated, we need a bigger test dataset. 
+bundles of 8 replicate single locus runs are similar to our real 8-locus multi-locus dataset. We also want multiples of those to build up a distribution of possible outcomes. This means something like 20 reps * 8 loci = 160 MetaPopGen single locus replicates. 
+
+Another thing that would be better in a play dataset would be if there was some differentiation. Flat structure makes it hard to follow plots sometimes. Remove all migration and see if that enables some differentiation. Also run a little longer (might be needed to build up differentiation). (All comparative statements based on work on testV8 so far).
+
+MetaPopGen publication
+https://www.ncbi.nlm.nih.gov/pubmed/25585533
+
+3/16/17 version failed to save final results (not sure why). Try again on more powerful computer, giving the parameter choices a once over and checking saving file names.
+
+Saving parameters and results to these files:
+running_V2_3_22_17_160_rep_no_migration_parameters.Rdata
+running_V2_3_22_17_160_rep_no_migration_results.Rdata
+
+overview of this practice dataset (running V2)
+3 populations
+50,000 years
+160 replicates
+5000 kappa juvenile carrying capacity
+0.3 juvenile survival
+0.9 flowering survival
+2 age classes, 1 and 2 years, rosettes and flowering plants. 
+0 overall migration rate (0 exchanged between each pair)
+1e-5 mutation rate
+
+full details in script below as well as saved parameter and data files.
+
+*************************************************************************************
+
+List here thoughts for future work as they come up:
+
+ - Eventually will continue exploring demographic stochasticity of bad years (make a version that's stochastic across replicates), but for now behavior of that one was odd - just work with a flatter demography while building up tools. Too big of swings in last attempt at bad years. 
+
+ - Population age structure set by Kappa and survival rates. build a mathematical tool to pick those values based on more intuitive input parameters in order to create realistic population structure (current one a little flower-heavy)
+ 
+- write generic code for making print tables (e.g. tabs, padding ). some of this in Rmetasim code already. for visualizing parameter choices nicely/fast comprehension.
+
+- Add parallel tools to get faster run times
+
+- Thing of replicates as replicates * loci for modelling multilocus (add parameter)
+
+- Add a time report to printed statement as each replicate is complete
+
+*************************************************************************************
+Install MetaPopGen
+If not already installed on working machine, download from here:
+https://sites.google.com/site/marcoandrello/metapopgen
+
+And point path below to the downloaded software.
+```{r}
+install.packages("BiasedUrn")
+install.packages("Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/MetaPopGen/MetaPopGen.0.0.4.tar.gz",
+                 type = "source", repos=NULL)
+```
+
+*************************************************************************************
+If already installed, start here:
+Set up: clear history and make sure you're in a good working directory (files will be generated), load program.
+```{r}
+rm(list=ls())
+getwd()
+library(MetaPopGen)
+```
+
+*************************************************************************************
+Populate parameter values and initial populations
+
+# Part 1: Creating the initial dataset
+```{r}
+n <- 3		# Number of demes - 3 populations
+z <- 2		# Number of ages, first year rosettes, second year flowering plants.
+l <- 10		# Number of alleles -  observations average 8.5/locus; model 10
+m <- l*(l+1)/2		# Number of genotypes = diploid combinations of alleles l(l+1)/2
+tmax <- 50000		# Number of years of simulation
+
+	# Initialize matrices that will hold survival and reproduction rates
+  # using the correct sizes for each dimension
+  # Dimensions = Genotypes x Demes x Ages x Time
+		sigma <- array(NA,dim=c(m,n,z,tmax)) #survival 
+		phi_M <- array(0,dim=c(m,n,z,tmax)) #male fecundity
+		phi_F <- array(0,dim=c(m,n,z,tmax)) #female fecundity
+  
+		# Important to track order of events for interpreting this: 
+	# 1) survival - multiply input  by survival, removes some rosettes and flowering plants.
+	# 2) reproduction - flowering plants produce seed
+	# 3) recruitment - some seed becomes rosettes, rosettes become flowers, flowers  removed
+	# N1 is before you start any thing, N2 is after one cycle of this.
+		
+		# This assigns values to the variables
+		sigma[,,1,] <- 0.3 #survival is 30% for rosettes 
+		sigma[,,2,] <- 0.9 #survival is 90% for flowering
+		phi_M[,,2,] <- 10000 #flowering males make 10,0000 pollen grains each
+		phi_F[,,2,] <- 1000 #flowering females make 500 ovules each ~seed count
+
+	# Seed Dispersal matrix
+	# seeds move around before sprouting into rosettes in recruitment phase
+	m.m <- 0 # migration no one goes anywhere
+	perpop <- m.m/(n-1)
+	delta <- matrix(rep(perpop,n^2),nrow=n,ncol=n)
+	diag(delta)<-rep((1-m.m),n)
+	
+	# Initial population structure:
+	# flat - all genotypes, all demes have the same number of individuals; different number of rosettes and flowering plants.
+	# Initialize array for initial number of individuals for [genotypes * demes * ages]
+		N1 <- array(NA,dim=c(m,n,z))		
+		# different starting n individuals for different age classes
+		# entering values that are per population/deme, per genotype
+		nrosettes = 100 #lots of rosettes per deme per genotype
+		nflowers = 10 #some flowering
+    N1[,,1] <- nrosettes #fill in value across all genotypes, across all demes, age class 1
+    N1[,,2] <- nflowers #fill in value across all genotypes, across all demes, age class 2
+    
+    
+	# Mutation matrix - uses max alleles at locus to model k-alleles mutation
+    overall_mu <- 1e-5 #likelihood of an allele mutating to any another allele
+    not_mutating <- 1-overall_mu
+    per_allele_mu <- overall_mu/(l-1) #there are l-1 nonself alleles to mutate to, each with equal likelihood 
+    #** could change this to model stepwise - 50% chance of moving up or down 1,with careful handling of edges.
+		mu <- array(per_allele_mu,dim=c(l,l)) # fill in array with per_allele_mu
+		#then make the diagonals the not_mutating rate
+		for (from_allele in 1:l){
+		  for (to_allele in 1:l){
+		    if (from_allele==to_allele) {
+		      mu[from_allele, to_allele] <- not_mutating
+		    }
+		  }
+		}
+
+	# Maximum recruitment per deme: Juvenile Carrying Capacity
+  # After reproducing, how many will make it into next year's starting Age 1
+  # Flat kappas
+	kappa0 <- array(5000,c(n,tmax)) #at most 5000 seedlings allowed per population.
+  # excess of seed in system means that kappa usually reached, randomness near asymptote, not limited by seed
+		
+	# Add good and bad years:
+	# this part needs some work, once evaluative tools up and running
+	#	kappas <- c(500, 5000) 
+	#number of seedlings in a bad year, number of seedlings in a good year
+	#	probs <- c(0.2, 0.8) # probability of bad year, good year
+	#	qualities <- vector(length=tmax)
+	#	kappa0 <- array(NA, c(n, tmax))
+	#	for (tp in 1:tmax) {
+	#	  kappa0[,tp] <- sample(kappas, 1, prob=probs)
+	#	}
+		#this makes the same bad years across replicates - might be useful later to put randomness across reps.
+
+	#Sample in time
+#How many years between taking samples for analysis?
+interval <- 200 # sample every n years
+
+#build a list of sampling generations based on this interval.
+samplemid <- seq.int(interval, tmax-interval, interval)
+samplegens <- c(1, samplemid, tmax)
+print("Sampling times")
+print(samplegens)
+nt <- length(samplegens)
+print(sprintf("Collecting %s time points", nt))
+# Save parameter set
+filepath <- "Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/MetaPopGen/running_V2_3_22_17_160_rep_no_migration_parameters.Rdata" 
+
+save(nt,samplegens,n,z,l,m,tmax,sigma,N1,phi_M,phi_F,mu,delta,kappa0,tmax, file=filepath)
+
+```
+
+See how N1 came out - is the number of individuals set up to be different across age classes?
+```{r}
+print("N1 Dimensions = genotype * deme * age class")
+print(dim(N1)) # genotypes x  demes x  age classes
+print("Genotype 1, deme 1, age 1 and 2")
+print(N1[1,1,]) #look at 1 genotype, 1 deme, all age classes
+print("Genotype 50, deme 3, age 1 and 2")
+print(N1[50,3,]) #look at 1 genotype, 1 deme, all age classes
+print(sprintf("%s rosettes per deme, %s flowering plants per deme to start", sum(N1[,1,1]), sum(N1[,1,2])))
+
+```
+
+#see mutation matrix came out
+```{r}
+print("print mutation rate matrix, between alleles")
+print(mu)
+print("print migration rate matrix, between demes")
+print(delta)
+```
+
+*************************************************************************************
+
+#####################################################################################
+# Perform the simulation
+#####################################################################################
+
+	
+```{r}
+# Optional: load saved workspace (starting from here instead of set up above)
+#rm(list=ls())
+#filepath <- "Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/MetaPopGen/test_V5_ph_test_2_23_17.RData"
+#library(MetaPopGen)
+#load(filepath)
+
+# Working from variables saved above.
+
+	# Simulation
+		nrepl <- 160
+
+  # Create a place to store Ns as you go
+		Ns <- array(NA, dim=c(nrepl, m, n, z, nt))
+		
+	# Create an array to store fst for each rep, each time point
+		fst <- array(NA,dim=c(nrepl,tmax))
+	
+	# Run the simulations
+	for (i in 1 : nrepl) {
+	  
+	  cat("Replicate",i,"\n") # Just to print on screen the advancement of the simulation
+	  
+	  N<-sim.metapopgen.monoecious(#check monoecious/dioecious
+		input.type="array",
+		N1 = N1, sigma = sigma,
+		phi_M = phi_M, phi_F = phi_F,
+		mu = mu, delta = delta, kappa0 = kappa0,
+		T_max = tmax,
+		save.res = F)
+		
+		flush.console() #ensures that display of output in the console is current, even if output buffering is on.
+		
+		#store a time sample of N, after calculating a replicate, to an array 
+  	for (timepoint in 1:nt) {
+  	  print(sprintf("Grabbing time point number %s of %s", timepoint, nt))
+  	  whichyear <- samplegens[timepoint]
+  		print(sprintf("Timepoint %s corresponds to year %s", timepoint, whichyear))
+  		print(dim(N))
+  		Ns[i,,,,timepoint] <- N[,,,whichyear]
+  		print(dim(Ns))
+  		}
+		
+		
+		# Calculate global Fst for replicate across timepoints
+		print("Calculating fst...")
+		for (t in 1 : tmax){
+			fst[i,t] <- fst.global.monoecious(N,t)
+		}
+	}
+
+filepath <- "Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/MetaPopGen/running_V2_3_22_17_160_rep_no_migration_results.Rdata" 
+save(Ns,fst,sigma,N1,phi_M,phi_F,mu,delta,kappa0,tmax,nrepl,file=filepath)
+```		

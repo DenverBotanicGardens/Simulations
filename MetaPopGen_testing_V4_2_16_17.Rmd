@@ -1,0 +1,645 @@
+---
+title: "Building MetaPopGen for Phacelia: testing to understand step behavior"
+author: "Jessie Berta-Thompson"
+date: "February 16, 2017"
+output: html_document
+---
+
+Purpose of this version:
+Two main questions:
+When do age classes move up?
+Who reproduces?
+We need to understand model steps better to effectively parametrize our biennial. We'll figure it out by running very simple cases with different expectations under possible variants of order of operations and watching behavior.
+
+Working on the other computer in Michelle's office today.
+```{r}
+# if new computer, install.
+install.packages("BiasedUrn")
+install.packages("Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/MetaPopGen/MetaPopGen.0.0.4.tar.gz",
+  type = "source", repos=NULL)
+```
+
+
+Set up: clear history and make sure you're in a good working directory (files will be generated), load program.
+```{r}
+rm(list=ls())
+getwd()
+library(MetaPopGen)
+#setwd("Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/MetaPopGen")
+```
+
+Testing behavior using different reproduction rates, fecundity, different population sizes in different age classes, to understand when populations move up and which populations reproduce.
+
+# Part 1: Creating the initial dataset
+```{r}
+nind <- 20		# Initial number of individuals per age-class and genotype
+n <- 4		# Number of demes
+z <- 3		# Number of age classes
+l <- 3		# Number of alleles
+m <- 6		# Number of genotypes
+tmax <- 5		# Number of years of simulation
+
+	# Initialize matrices that will hold survival and reproduction rates
+	# This initialises the variables using the correct sizes for each dimension
+  # Dimensions = Genotypes x Demes x Ages x Time
+		sigma <- array(NA,dim=c(m,n,z,tmax)) #survival 
+		phi_M <- array(0,dim=c(m,n,z,tmax)) #male fecundity
+		phi_F <- array(0,dim=c(m,n,z,tmax)) #female fecundity
+
+	# This assigns values to the variables
+		sigma[,,,] <- 0.5 #survival is 50%
+		phi_M[,,,] <- 10 #Males make 10 pollen grains each
+		phi_F[,,,] <- 10 #Females make 10 ovules
+
+	# Dispersal matrix
+	m.m <- 0 #no migration this time.
+	delta <- matrix(rep(m.m/(n-1),n^2),nrow=n,ncol=n)
+	diag(delta)<-rep((1-m.m),n)
+#seeds (next year's age class 1 move around before settled)
+	
+	# Initial population structure
+	# Genotypes number are assigned at random, by drawing the number of individuals of each genotype from a uniform distribution between [0,nind/m]
+	#Actually here the number is just set to a fixed value, all genotypes the same.
+		N1 <- array(NA,dim=c(m,n,z))		# Initial number of individuals for [genotypes * demes * ages]
+
+		#different starting n individuals for different age classes
+		for (deme in 1 : n){ #loop over demes
+		  for (genotype in 1 : m) { #loop over genotypes
+				for (age in 1 : z) { #loop over age classes
+          if (age == 1) {
+					  N1[genotype,deme,age] <- 30 
+          }
+					else if (age == 2) {
+					  N1[genotype,deme,age] <- 20
+					}
+				  else if (age == 3) {
+					  N1[genotype,deme,age] <- 10 
+					}
+				}
+			}
+		}
+
+	# Mutation matrix
+		mu <- array(1e-6,dim=c(l,l))
+		mu[1,1] <- 1 - mu[2,1]
+		mu[2,2] <- 1 - mu[1,2]
+  #2 alleles in diploid genotype - each can stay the same or change. 
+		
+		
+	# Maximum recruitment
+		kappa0 <- array(Inf,c(n,tmax))
+  #Juvenile Carrying Capacity = infinity for now; after reproducting, how many age class 1 will make it to next year's starting Age 1
+		
+		
+	# Save parameter set
+filepath <- "Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/MetaPopGen/test_V4_2_16_17.RData"
+		save(sigma,N1,phi_M,phi_F,mu,delta,kappa0,tmax, file=filepath)
+```
+
+See how N1 came out - is the number of individuals set up to be different across age classes?
+```{r}
+print(dim(N1)) # 6 genotypes x 4 demes x 3 age classes
+print(N1[1,1,]) #look at 1 genotype, 1 deme, all age classes
+print(N1[,1,]) #look at all genotypes, 1 deme, all age classes
+```
+
+Ok - looks like successfully set up an age-structured population.
+
+#############################################################################################
+# Perform the simulation
+#############################################################################################
+
+	library(MetaPopGen)
+```{r}
+	# Clear the workspace
+		rm(list=ls())
+
+	# Load dataset (created in Part 1)
+filepath <- "Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/MetaPopGen/test_V4_2_16_17.RData"
+		load(filepath)
+
+
+	# Simulation
+		nrepl <- 1
+
+
+	# Create the array for fst
+		fst <- array(NA,dim=c(nrepl,tmax))
+	
+	# Run the simulations
+	for (i in 1 : nrepl) {
+	  
+	  cat("Replicate",i,"\n") # Just to print on screen the advancement of the simulation
+	  
+	  N<-sim.metapopgen.monoecious(
+		input.type="array",
+		N1 = N1, sigma = sigma,
+		phi_M = phi_M, phi_F = phi_F,
+		mu = mu, delta = delta, kappa0 = kappa0,
+		T_max = tmax,
+		save.res = F)
+		
+		flush.console()
+		
+		# Calculate Fst
+		print("Calculating fst...")
+		for (t in 1 : tmax){
+			fst[i,t] <- fst.global.monoecious(N,t)
+		}
+		
+
+	}
+
+```		
+
+Examine output.
+```{r}
+#N is a new object 6 * 4 * 3 * 5 [genotypes * demes * ages * times]
+print(dim(N))
+
+#Look at one deme at a time.
+d <- 4
+#look at just one deme, one time - matrix genotypes vs age classes
+year1 = N[,d,,1] #everything for time 1
+year2 = N[,d,,2] #everything for time 2
+year3 = N[,d,,3] #everything for time 2
+year4 = N[,d,,4] #everything for time 2
+year5 = N[,d,,5] #everything for time 2
+
+print(sprintf('Year 1, deme %s',d))
+print(year1)
+print(apply(year1, 2, mean))
+
+print(sprintf('Year 2, deme %s',d))
+print(year2)
+print(apply(year2, 2, mean))
+
+print(sprintf('Year 3, deme %s',d))
+print(year3)
+print(apply(year3, 2, mean))
+
+print(sprintf('Year 4, deme %s',d))
+print(year4)
+print(apply(year4, 2, mean))
+
+print(sprintf('Year 5, deme %s',d))
+print(year5)
+print(apply(year5, 2, mean))
+```
+
+Interpret these results:
+These match the following order of operations:
+1) Survival means survival in class
+for across the board 50% survival, this means
+30, 20, 10 -> 15, 10, 5
+2) Reproduction means create new class 1 individuals
+for across the board fecundity of 10. this means
++ 150 + 100 + 50
+3) things move up a class (making room for new ones)
+300, 15, 10
+
+general demographic behavior - highly patch across genotypes, bigger than it started.
+
+
+
+******************************************************************
+
+******************************************************************
+
+******************************************************************
+
+Next Question:
+How does Kappa - juvenile carrying capacity/recruitment work?
+Starting with the same example, add a non-infinite kappa.
+
+# Part 1: Creating the initial dataset
+```{r}
+nind <- 20		# Initial number of individuals per age-class and genotype
+n <- 4		# Number of demes
+z <- 3		# Number of age classes
+l <- 3		# Number of alleles (used in Kalleles model)
+m <- 6		# Number of genotypes
+tmax <- 5		# Number of years of simulation
+
+	# Initialize matrices that will hold survival and reproduction rates
+	# This initialises the variables using the correct sizes for each dimension
+  # Dimensions = Genotypes x Demes x Ages x Time
+		sigma <- array(NA,dim=c(m,n,z,tmax)) #survival 
+		phi_M <- array(0,dim=c(m,n,z,tmax)) #male fecundity
+		phi_F <- array(0,dim=c(m,n,z,tmax)) #female fecundity
+
+	# This assigns values to the variables
+		sigma[,,,] <- 0.5 #survival is 50%
+		phi_M[,,,] <- 10 #Males make 10 pollen grains each
+		phi_F[,,,] <- 10 #Females make 10 ovules
+
+	# Dispersal matrix
+	m.m <- 0 #no migration this time.
+	delta <- matrix(rep(m.m/(n-1),n^2),nrow=n,ncol=n)
+	diag(delta)<-rep((1-m.m),n)
+#seeds (next year's age class 1 move around before settled)
+	
+	# Initial population structure
+	# Genotypes number are assigned at random, by drawing the number of individuals of each genotype from a uniform distribution between [0,nind/m]
+	#Actually here the number is just set to a fixed value, all genotypes the same.
+		N1 <- array(NA,dim=c(m,n,z))		# Initial number of individuals for [genotypes * demes * ages]
+
+		#different starting n individuals for different age classes
+		for (deme in 1 : n){ #loop over demes
+		  for (genotype in 1 : m) { #loop over genotypes
+				for (age in 1 : z) { #loop over age classes
+          if (age == 1) {
+					  N1[genotype,deme,age] <- 30 
+          }
+					else if (age == 2) {
+					  N1[genotype,deme,age] <- 20
+					}
+				  else if (age == 3) {
+					  N1[genotype,deme,age] <- 10 
+					}
+				}
+			}
+		}
+
+	# Mutation matrix - uses max alleles at locus to model k-alleles mutation
+		mu <- array(1e-6,dim=c(l,l))
+		mu[1,1] <- 1 - mu[2,1]
+		mu[2,2] <- 1 - mu[1,2]
+  #2 alleles in diploid genotype - each can stay the same or change. 
+		
+		
+	# Maximum recruitment per deme
+		kappa0 <- array(180,c(n,tmax)) #can vary over deme and time.
+  #Juvenile Carrying Capacity = infinity for now; after reproducting, how many age class 1 will make it to next year's starting Age 1
+		#starting values 30 young per deme per genotype
+		#*6 genotypes = 180 per deme. 
+		#set to 180 per deme and see if that ends up with stable-ish 30. 
+		
+	# Save parameter set
+filepath <- "Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/MetaPopGen/test_V4_kappa_test_2_16_17.RData"
+		save(sigma,N1,phi_M,phi_F,mu,delta,kappa0,tmax, file=filepath)
+```
+
+See how N1 came out - is the number of individuals set up to be different across age classes?
+```{r}
+print(dim(N1)) # 6 genotypes x 4 demes x 3 age classes
+print(N1[1,1,]) #look at 1 genotype, 1 deme, all age classes
+print(N1[,1,]) #look at all genotypes, 1 deme, all age classes
+```
+
+#############################################################################################
+# Perform the simulation
+#############################################################################################
+
+	library(MetaPopGen)
+```{r}
+	# Clear the workspace
+		rm(list=ls())
+
+	# Load dataset (created in Part 1)
+filepath <- "Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/MetaPopGen/test_V4_kappa_test_2_16_17.RData"
+		load(filepath)
+
+
+	# Simulation
+		nrepl <- 1
+
+
+	# Create the array for fst
+		fst <- array(NA,dim=c(nrepl,tmax))
+	
+	# Run the simulations
+	for (i in 1 : nrepl) {
+	  
+	  cat("Replicate",i,"\n") # Just to print on screen the advancement of the simulation
+	  
+	  N<-sim.metapopgen.monoecious(
+		input.type="array",
+		N1 = N1, sigma = sigma,
+		phi_M = phi_M, phi_F = phi_F,
+		mu = mu, delta = delta, kappa0 = kappa0,
+		T_max = tmax,
+		save.res = F)
+		
+		flush.console()
+		
+		# Calculate Fst
+		print("Calculating fst...")
+		for (t in 1 : tmax){
+			fst[i,t] <- fst.global.monoecious(N,t)
+		}
+		
+
+	}
+
+```		
+
+```{r}
+# Meand and standard deviation of FST
+mean(fst[,3:tmax]) # because reached stable Fst after ca 50 generations?
+sd(fst[,3:tmax])
+
+# Expected value for FST
+Ne <- 6*(30 + 15 + 7.5) #each deme starting size 10 + 20 + 30, Kappa 180 limit to incoming.
+#per genotype (of 6) 30 - 15 - 7.5 
+m.m <- 0
+fst.exp <- 1/(1 + 4 * Ne * (m.m))
+```
+
+
+Examine output.
+```{r}
+#N is a new object 6 * 4 * 3 * 5 [genotypes * demes * ages * times]
+print(dim(N))
+
+#Look at one deme at a time.
+d <- 4
+#look at just one deme, one time - matrix genotypes vs age classes
+year1 = N[,d,,1] #everything for time 1
+year2 = N[,d,,2] #everything for time 2
+year3 = N[,d,,3] #everything for time 2
+year4 = N[,d,,4] #everything for time 2
+year5 = N[,d,,5] #everything for time 2
+
+print(sprintf('Year 1, deme %s',d))
+print(year1)
+print(apply(year1, 2, mean))
+
+print(sprintf('Year 2, deme %s',d))
+print(year2)
+print(apply(year2, 2, mean))
+
+print(sprintf('Year 3, deme %s',d))
+print(year3)
+print(apply(year3, 2, mean))
+
+print(sprintf('Year 4, deme %s',d))
+print(year4)
+print(apply(year4, 2, mean))
+
+print(sprintf('Year 5, deme %s',d))
+print(year5)
+print(apply(year5, 2, mean))
+```
+
+Kappa: after everything else, perhaps at same time as Age class 1 & 2 remaining after survival moves up a class to 2&3 (and class3 disappears) , newly created class 1 individuals fill in empty class 1, sampling from individuals produced during reproduction to level allowed by kappa. from paper: "Number of recruits tends assymptotically to" kappa. Probably sets of stable conditions if number of offspring exceeds kappa. Hurts noisiness of data (but still sampling a binomial)
+
+******************************************************************
+
+******************************************************************
+
+******************************************************************
+Next Question:
+How to get alleles from genotypes?
+Mutation happens at level of l (# alleles), and alleles are combined to create genotypes (pairs of alleles), but the data is in the form of just genotype, not clear which genotypes share alleles, which are homo/heterzygotes. 
+
+Documentation of example "FourPopMonoecious" includes lines defining order of genotypes.
+
+barplot(N1[,,1],names.arg=c("1","2","3","4"),xlab="Deme",ylab="Number of age-1 individuals",col=colours)
+lg.txt <- c("A1A1", "A1A2", "A1A3", "A1A4", "A2A2", "A2A3", "A2A4", "A3A3", "A3A4", "A4A4")
+legend(-1,1500,lg.txt,fill=colours,ncol=5,bty="n")
+
+barplot(N[,,2,dim(N)[4]],names.arg=c("1","2","3","4"),xlab="Deme",ylab="Number of age-2 individuals",col=colours)
+lg.txt <- c("A1A1", "A1A2", "A1A3", "A1A4", "A2A2", "A2A3", "A2A4", "A3A3", "A3A4", "A4A4")
+legend(0.2,600,lg.txt,fill=colours,ncol=5,bty="n")
+
+And even easier to understand, elsewhere in this example they state it:
+
+"If there are two alleles, say A1 and A2, there will be three genotypes; the order in which they are stored in N1 is as follows: A1A1, A1A2 and A2A2. If there are three alleles (A1, A2 and A3), the order is: A1A1, A1A2, A1A3, A2A2, A2A3, A3A3. With four alleles, the order is: A1A1, A1A2, A1A3, A1A4, A2A2, A2A3, A2A4, A3A3, A3A4, A4A4. So with four alleles N[6,1,3] gives the number of A2A4 individuals in deme 1 that are of age 3."
+
+******************************************************************
+
+******************************************************************
+
+******************************************************************
+Next Question:
+How should i assign life cycle stages to these yearly age classes?
+
+Age 1 = sprouts (mini rosettes, recruited seeds)
+Age 2 = flowering plants (reproductive)
+
+-----T = 1 starting conditions
+
+Survive:
+some sprouts don't survive (this means they won't move up to flower)
+some flowering plants don't survive (this means they won't produce seed)
+
+Reproduce:
+Only flowering plant class 2 reproduces, but they make a lot of pollen and many ovules (ovules sets amount of seed)
+
+Recruit:
+A density dependent amount of seed actually sprouts (can't exceed carrying capacity)
+Last year's flowers fall off the map
+Last year's sprouts move up to flowering.
+
+-----T = 2 make another count at this point
+
+******************************************************************
+
+******************************************************************
+
+******************************************************************
+Next Question:
+How can I calculate popgen stats from the output of this program?
+
+Built-in tools:
+
+##genotype.index(l)
+
+Give the number of alleles, it shows you the genotype number (index along genotype axis of N matrix) for each combination of alleles. useful for translating between data matrix and actual allelic data.
+
+```{r}
+genotype_indices = lapply(2:10, genotype.index)
+
+for (i in 1:length(genotype_indices)){
+  print(genotype_indices[i])
+}
+
+```
+
+
+
+### create.dispersal.matrix(x,a,longlat = True)
+Input a matrix of spatial data x = lat/lon matrix; row denotes points, first column longitude, second column latitude (where are your demes), output distance-dependent migation rates. 
+
+##freq.all(N)
+input number of individuals of each genotype (N[,1,1,1])
+```{r}
+#for deme 1, age 1
+print(freq.all(N[,1,1,1])) #starting frequences of A1, A2 and A3
+print(freq.all(N[,1,1,5])) #ending frequencies
+
+#slicing question, can I get a few at once?
+print(freq.all(N[,,,5])) #all demes and all age classes
+#no! this makes no sense - more frequencies listed than alleles. 
+#will require some slicing and squishing in different ways. 
+#how many total genotypes?
+print(dim(N))
+```
+
+
+## fst.global.monoecious
+## fst.global.dioecious
+Compute Fst between two groups of individuals (dioecious or mono)
+
+fst.pairwise.monoecious(N,i,j,xi,xj,ti,tj)
+fst.pairwise.monoecious(folder.name,i,j,xi,xj,ti,tj)
+
+N	
+A 4-D array (ex: N[k,i,x,t]) of length c(m,n,z,T_max) giving the number of individuals of genotype k, age x in deme i at time t. Typically, the output of the function sim.metapopgen.monoecious
+folder.name	
+Character string giving the name of the folder where the results of sim.metapopgen.monoecious are saved, when this function is used with the argument save.res set to TRUE.
+i, xi, ti	
+Identifiers of the first group of individuals: it specifies the individuals of deme i, age xi at time ti
+i, xi, ti	
+Identifiers of the second group of individuals: as above.
+
+
+
+```{r}
+print(dim(N))
+fst.pairwise.monoecious(N,1,2,2,2,5,5) #compare time 5, age 2, Deme 1 vs 2.
+tmax = 5
+# Temporal evolution of fst
+fst <- array(NA,dim=c(3,5))
+for (t in 1 : tmax) {
+for (deme in 1 : 3){
+fst[deme,t] <- fst.pairwise.monoecious(N,1,(deme+1),1,1,t,t)
+}
+}
+plot(c(1:tmax),fst[1,],type="l",col="blue",xlab="Year",ylab="Fst")
+matplot(c(1:tmax),fst[2,],type="l",col="darkgreen",add=T)
+matplot(c(1:tmax),fst[3,],type="l",col="red",add=T)
+legend(30,1,c("1 vs 2","1 vs 3","1 vs 4"), col = c("blue", "darkgreen", "red"),lty=1)
+
+```
+
+So, to get more, we'll need to make a function that converts this object into genind
+
+Individual = row
+Each row assigned to a population
+plus the data column, the locus, with allele assignments
+
+1-2
+
+dig up old code for making genind, figure out how to extract right kinds of data, and modify.
+
+#for each timepoint there will be one dataset.
+N = genotypes * demes * age * time
+
+```{r}
+#results <- vector("list", n) #make list of defined size
+demecount = 4
+tmax = 5
+for (i in 1:tmax) {#each timepoint a different popgen dataset
+  dataset <- N[,,2,i] #within each deme, only look at flowering individuals
+  #print(sprintf("For time %s, flowering plants only, genotypes vs. deme", i))
+  #print(dataset)
+  for (j in 1:demecount){ #go through deme list
+    print(sprintf("For time %s deme %s, flowering plant genotype counts", i,j))
+    print(N[,j,2,i])
+    genotype_vector <- N[,j,2,i]
+    print("Length of genotype vector")
+    print(length(genotype_vector))
+    print("Sum of genotype vector individuals counts = number of flowering plants in deme")
+    print(sum(genotype_vector))
+    print(data.class(genotype_vector))
+    genotypes = 6
+    deme_list <- list()
+    ind_count = 0
+    for (g in 1:genotypes) {
+      geno_count <- N[g,j,2,i] #this many of this type
+      if(geno_count != 0) {
+        for (ind in 1:geno_count) {
+          deme_list[length(deme_list)+1] <- g
+          ind_count = ind_count + 1
+      }
+        }
+    }
+    print(ind_count)
+    print(length(deme_list))
+
+      
+    }
+  }
+  
+#Next step sample 30 individuals per deme, then in an outer loop be building for each timepoint (data vector) (deme label vector) in as close to format for genind as possible. build these lists into a bigger list convert to 1-1 notation.
+ 
+
+  
+  
+```
+
+
+## Full pop gen stats too slow to run on full datasets. Have to sample at this point. 
+#Pop stats with sampling.
+```{r}
+library(adegenet) # multivariate genetic data analysis
+library(strataG)  # summaries and population structure analyses of genetic data
+
+sampled_genind_lol<- lapply(1:nreps, function(r) {# loop over replicates
+  sampled_genind_list_over_time<-lapply(1:length(replist[[r]][[2]]), function(t){# loop over matrices 
+    print(sprintf("Working in replicate %s, time %s", r, t))
+    rland.df <- data.frame(replist[[r]][[2]][t]) #convert one individuals matrix to dataframe format
+    #reformat allele data (pairs by locus)
+    alleles <- seq(7,length(rland.df)-1,2) # in rland$individuals, alleles start at 7, go to end, pair at each locus side by side
+    rland.2genind <- sapply(alleles, function(x){
+      paste(rland.df[,x], rland.df[,x+1], sep = "-")}) # Combine alleles per locus with '-' for genind
+    #convert to data frame to match the other one.
+    rland.2genind <- data.frame(rland.2genind)
+    ### For debugging: 
+    print("Dimensions of full rland.df (rxc):")
+    print(dim(rland.df))
+    print("Dimensions of full rland.2genind (rxc):")    
+    print(dim(rland.2genind))
+
+    #label with populations [subpopulations 0, 1, 2, 3 = pop1, 4, 5, 6, 7 = pop2, 8, 9, 10, 11 = pop3]
+    rland.df$pop <- "pop3"
+    rland.df$pop[rland.df$X1 < 8] <- "pop2"
+    rland.df$pop[rland.df$X1 < 4] <- "pop1"
+    
+    #sample just flowering plants from each population: 3, 7, and 11s for 3 populations with 4 age classes in each.
+    flowers <- c(3,7,11)
+    #sample at random, n individuals per population.
+    n <- 30 #number of samples to take. will sample exactly that many - doesn't bother if fewer than 30 flowers.
+    sample_rows <- lapply(flowers, function(x){ #loop through flower pops to create sample list.
+      n_pop <- length(rland.df$X1[rland.df$X1 == x]) #count the number of instances of given population x. X1 contains pop id (3, 7, 11)
+      print(sprintf("population %s contains %s plants", x, n_pop))
+      if (n_pop>=n) {
+        print(sprintf("enough plants in population %s to sample target %s individuals!",x,n ))
+        rowstotake <- sample(which(rland.df$X1 == x),n) #sample at random 30 items from the indices of rows in correct pop
+      }
+      else{
+        print(sprintf("not enough plants in population %s to sample target %s individuals: returning NULL",x,n ))
+        rowstotake <- NULL
+      }
+      return(rowstotake)
+      })    
+     print(sample_rows) #this is a list of lists
+    rows <- do.call(c,sample_rows) #this collapses list of lists into a single vector.
+    #this doesn't have special case handling when all three are below 30 - ignore for now, but could be a problem.
+    print(rows)
+    #apply sampling to two data frames
+    samp.rland.2genind <- rland.2genind[rows,] # sample genind-style data (just alleles) for the sample rows, all columns
+    samp.rland.df <- rland.df[rows,]
+
+    ### For debugging: 
+    print("Dimensions of samp.rland.2genind (rxc):")
+    print(dim(samp.rland.2genind))
+    print("Dimensions of samp.rland.df (rxc):")    
+    print(dim(samp.rland.df))
+    
+    #convert to genind for downstream analyses
+    samp.rland.genind <- df2genind(samp.rland.2genind, pop = samp.rland.df$pop, type = "codom", sep="-") #error occurs here - size mismatch
+       return(samp.rland.genind)})
+    return(sampled_genind_list_over_time)})
+```
+
+
+
+
+
+
+
+
+

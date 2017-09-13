@@ -1,0 +1,410 @@
+---
+title: "Rmetasim_v6"
+author: "Michelle DePrenger-Levin & Jessie Berta-Thompson"
+date: "January 19, 2017"
+output: html_document
+---
+New things in the works for this version:
+0) continue cleaning up code for easy of use
+1) Add fourth life stage for seedbank
+2) Adjust tryCatch to fill in zeros or Nas for expected size of datastucture after extinction errors
+
+
+To start, clear environment, 
+load rmetasim (forward population genetics modelling software described in Strand et al. 2002)
+load dplyr (data manipulation tools to make working with data frames/data tables/databases easier).
+```{r}
+rm(list =ls())
+library(rmetasim)
+library(dplyr)
+
+
+
+```
+
+
+## Set values for integer parameters
+
+Description of choices:
+3 Phacelia populations with 4 age classes in each (seeds, seedlings, juveniles, flowers), 12 loci.
+Maxland size set to be much higher than expected. Simulate 10,000 generations this time.  
+
+```{r}
+#Critical - check every time
+habitats <- 3          # the number of different habitats or subpopulations within the landscape
+stages <- 4            # the number of stages in the life cycle of the organism
+maxgen <- 5000         # the total number of generations to simulate
+
+#Moderately important - double check
+locusnum <- 12         # the number of different loci currently implemented for the simulation
+maxlandsize <- 3e+07   # the maximum number of individuals that can exist in the simulation 
+
+#Unlikely to change for our immediate purposes - defaults
+currentepoch <- 0      # the current epoch the simulation has reached
+currentgen <- 0        # the current generation the simulation has reached
+numdemos <- 0          # the number of different within population demographies
+numepochs <- 0         # the number of different migration scenerios to occur during the simulation
+```
+
+
+## Set on/off values for parameters that are switches: 4 values of 1 or 0
+Description of choices:
+Only one epoch and one local demography - no need for randomization options, multiple pollen grains can fertilize one plant, so multiple paternity is on. Density dependent demography (different local demographic matrix for high and low population density) not in use.
+```{r}
+randepoch <- 0    # 1=choose the next epoch randomly using their individual probabilities, 0=choose the next epoch according to their ordering     
+randdemo <- 0     # 1=assign demographies at random, 0=assign demographies in order"                                      
+multp <- 1        # 1=multiple paternity, 0=entire families from a single mating                                              
+densdepdemo <- 0  # a flag to turn density-dependent population regulation on and off"                                
+```
+
+
+## Set selfing rate (float parameter)
+Description of choice:
+We don't know selfing rate; Phacelia attracts pollinators (looking for outside pollen), but doesn't have morphology to absolutely prevent selfing (more research required + run various  to assess impact)
+```{r}
+selfing <- 0.5      # This value is the selfing rate of the species (between 0 and 1 inclusive) assuming a mixed mating model where selfing occurs S proportion of the time and random mating occurs 1-S proportion of the time.
+```
+
+## Set Local demographics (life stages) matrices and parameters
+Local demography - within-population life cycle dynamics - is composed of survival, reproduction and male contribution matrices, which advance the population each generation. There can be a different one for each subpopulation (chosen at random from the set or assigned in order).,Local demography S, R, M matrices must be square n x n, where n is the number of stages in each population. Repeating landscape.new.local.demo with more matrices puts more demographies into the localdem list (e.g. one for each population)
+
+Description of Choices:
+A slightly complicated biennial with a seed bank
+stage 1 = seeds
+stage 2 = seedlings, new rosettes (first year rosettes)
+stage 3 = juvenile rosettes created from last year's seedlings and waiting an extra spring to flower (second year rosettes)
+stage 4 = flowering plants that reproduce then die, created from last years seedlings and year old juvenile rosettes.
+
+Only the seed stage is allowed to linger (remain viable over years) - plants either move to another stage or die every year.
+
+Rate values set to give a stable population of plants that is 90% seedlings, 1% juveniles, 9% flowering plants, which is itself 1 plant: 1000 seeds. 
+
+Survival
+reading down each column (transitions go from column to row)
+Some seeds stay seed, some sprout to befome seedlings
+No seedlings remain seedlings, some become juveniles, some become flowering plants next year
+Some juveniles survive to become flowering plants next year (the rest die)
+All mature flowering plants die
+
+Reproduction
+Maternal production of offspring
+Our choice means each flowering plant contributes many seeds to the seedbank, on average (drawn from poisson)
+
+Male contribution - Probability that pollen comes from a particular stage class.
+All pollen comes from flowering plants
+#****** Question ******** should this value be 1 or 1-contents of migration matrices? how is this combined with the epoch migration matrices? 100% percent of pollen comes from flowering plants, but we really want 90% from within population, 10% from other populations.
+
+
+```{r}
+#Local Survival
+localS <- matrix(c(  0.4489795918,             0,    0,   0,
+                    0.01836734694,             0,    0,   0,
+                                0, 0.01111111111,    0,   0,
+                                0,         0.092, 0.72,   0) , byrow = TRUE, nrow = 4)
+#Local Reproduction
+localR <- matrix(c(  0,  0,  0, 300,
+                     0,  0,  0,   0,
+                     0,  0,  0,   0,
+                     0,  0,  0,   0) , byrow = TRUE, nrow = 4)
+#Local Male Contribution
+localM <- matrix(c(  0,  0,  0,  0,
+                     0,  0,  0,  0,
+                     0,  0,  0,  0,
+                     0,  0,  0,  1) , byrow = TRUE, nrow = 4)
+
+```
+
+
+
+
+
+Between-population demographics (migration)
+Repeat command to have more epochs
+Construct matrices [number of habitats x number of stages] x [number of habitats x number of stages] describing movement between all demographic subpopulations of all populations.
+No plants travel (survival matrix all zero. Seeds might travel (Reproduction matrix), but zero for now.
+Pollen travels. A small amount of male contribution comes from other populations (could use clarification on exactly how this is calculated, from/to)
+```{r}
+epochS <- matrix(c(rep(0,144)), nrow=12)
+epochR <- matrix(c(rep(0,144)), nrow=12)
+epochM <- matrix(c(   0,  0,  0,    0,     0,  0,  0,    0,     0,  0,  0,    0,
+                      0,  0,  0,    0,     0,  0,  0,    0,     0,  0,  0,    0,
+                      0,  0,  0,    0,     0,  0,  0,    0,     0,  0,  0,    0, 
+                      0,  0,  0,    0,     0,  0,  0, 0.05,     0,  0,  0, 0.05,
+
+                      0,  0,  0,    0,     0,  0,  0,    0,     0,  0,  0,    0,
+                      0,  0,  0,    0,     0,  0,  0,    0,     0,  0,  0,    0,
+                      0,  0,  0,    0,     0,  0,  0,    0,     0,  0,  0,    0, 
+                      0,  0,  0, 0.05,     0,  0,  0,    0,     0,  0,  0, 0.05,
+                      
+                      0,  0,  0,    0,     0,  0,  0,    0,     0,  0,  0,    0,
+                      0,  0,  0,    0,     0,  0,  0,    0,     0,  0,  0,    0,
+                      0,  0,  0,    0,     0,  0,  0,    0,     0,  0,  0,    0, 
+                      0,  0,  0, 0.05,     0,  0,  0, 0.05,     0,  0,  0,    0
+                      
+                      ), byrow=TRUE, nrow=12)
+```
+
+#After the matrices, the epoch set-up command also accepts other arguments about demography
+```{r}
+RndChooseProb <- 1            
+# random flag not turned on, unimportant, leave default           [1]                 "the probability of randomly choosing this epoch if rland$switchparam$randepoch==1"
+StartGen <- 0                
+# this epoch will staert at generation 0                          [0]                 "the generation this epoch begins if rland$switchparam$randepoch==0"
+Extinct <- c(0,0,0)           
+# no extinction in model (could happen if populations shrink)     [c(0,0,0)]          "a vector of values giving the extinction probability for each subpopulation"
+Carry <- c(1e+7,1e+7,1e+7)    
+# carrying capacities set to higher than expected so not limiting [c(1000,1000,1000)] "a vector of values denoting the maximum individuals for each subpopulation"
+
+Localprob <- 1                
+# the probability of choosing the one local demography is 1       [1]                 "the probability of choosing this local demography if rland$switchparam$randdemo==1"
+```
+
+
+Create lists of loci and alleles
+Run landscape.new.locus command once for each locus. Set information about locus. 
+
+Each locus also has an object called alleles, which is a list of alleles for the locus, each of which is a list with more information. Allele properties at a locus are also fed into landscape.new.locus to populate initial allele frequencies
+
+One unused property: allelesize <- 50  # no allele size used for strict stepwise model [50] for type==2 DNA base substitution/variable length sequence state, enter custom DNA length here (one for locus, not per allele, so not quite what we want for microsatellite-like evolution)   
+```{r}
+model <- 1          
+# 0 = infinite alleles (alleles represented by integers, every mutation creates a new allele, no back mutation) sometimes used for compound microsatellites with complex patterns of mutation with less likely back mutation.
+# 1 = strict step wise (alleles represented by integers, increase or decrease by 1 every mutation - like differences in length for simple sequence repeats - used for microsatellites with repeat regions, co-dominant, high mutation rates) 
+# 2 = DNA base substitution (probably JC)
+ploidy <- 2             
+# diploid                                                                 [1]       "This can be 1 for haploid and 2 for diploid"
+mu <- 0.0001  
+# per-allele mutation rate 0.0001                                         [0]       "the per-allele mutation rate (not per site) range [0 1] (average # of mutations per allele per generation)"
+inherit <- 0       
+# biparental inheritance                                                  [1]       "The mode of inheritance. This can be 0 for biparental or 1 for maternal."
+numalleles <- 9  # number of alleles at this locus (before mutation). allow there to be n possible states of the microsatellite at this locus.
+
+#set up a frequency list for the n alleles at this locus (initialize with even frequencies of all alleles) (Same length as number of alleles)
+freq <- c(rep(1.0/numalleles,numalleles)) 
+
+```
+Additional features of locus and allele objects.
+
+statelist <- # the starting alleles themselves - no need to enter, they are generated by program (although you could) for type 0 or 1 this fills in integers [1:numalleles]; for type 2, generates DNA of length allelesize sampling ACTG from uniform distribution
+landscape.new.locus the loci parameters and makes an the allele list of length numalleles so that each allele gets the following properties:
+aindex index number of allele
+birth generation the allele first appeared
+prop - frequency of this allele (from frequency list)
+state - an integer for loci of type 0 or 1 (infinite allele or strict stepwise mutation), a string representing DNA sequence for loci type 2 (ACTG)
+all possible entries: rland <- landscape.new.locus(rland, type=locustype, ploidy=ploidy, mutationrate=mutationrate, transmission=transmission, numalleles=numalleles, allelesize=allelesize,frequencies=frequencylist, states=statelist)
+If for some reason we wanted to get into allele construction, code to do so (from landscape.new.locus) would look like this
+rland$loci[[locusnum]]$alleles <- makealleles(type, numalleles, allelesize, frequencies, states)
+
+
+To create individuals, enter a vector of population sizes for each subpopulation, summing to less than carrying capacity for each.
+For 3 populations with 4 subpopulations, these 12 categores become known as subpopulations 0-11 in data (in order shown)
+```{r}
+pop1seed     <- 98000
+pop1seedling <- 1800
+pop1juv      <- 20
+pop1mat      <- 180
+
+pop2seed     <- 98000
+pop2seedling <- 1800
+pop2juv      <- 20
+pop2mat      <- 180
+
+pop3seed     <- 98000
+pop3seedling <- 1800
+pop3juv      <- 20
+pop3mat      <- 180
+
+initial_pop_structure = c(pop1seed, pop1seedling, pop1juv, pop1mat, 
+                          pop2seed, pop2seedling, pop2juv, pop2mat, 
+                          pop3seed, pop3seedling, pop3juv, pop3mat)
+
+print("starting total number of individuals in rland:")
+print(sum(initial_pop_structure))
+
+print("size of each population")
+print("population 1:")
+print(pop1seed + pop1seedling + pop1juv + pop1mat)
+print(sprintf("%s plants, %s seeds",pop1seedling + pop1juv + pop1mat, pop1seed ))
+print("population 2:")
+print(pop2seed + pop2seedling + pop2juv + pop2mat)
+print(sprintf("%s plants, %s seeds",pop2seedling + pop2juv + pop2mat, pop2seed ))
+print("population 3:")
+print(pop3seed + pop3seedling + pop3juv + pop3mat)
+print(sprintf("%s plants, %s seeds",pop3seedling + pop3juv + pop3mat, pop3seed ))
+
+
+print("Compare to maxland size:")
+print(maxlandsize)
+
+print("Compare to list of carrying capacities for three populations")
+print(Carry)
+
+```
+
+
+#function to create an Rland!
+```{r}
+
+create.land <- function()
+    {
+### CREATE A LANDSCAPE
+###first set up the matrices for within-population local demographics
+        S <- localS
+        R <- localR
+        M <- localM
+        
+        #then matrices for between-population demography for the epochs  
+        S.epoch <- epochS
+        R.epoch <- epochR
+        M.epoch <- epochM
+
+        ##now create the landscape
+        landscape.new.empty() %>% 
+            landscape.new.intparam(h=habitats,s=stages, cg=currentgen, ce=currentepoch, totgen=maxgen, maxland=maxlandsize) %>% 
+                landscape.new.switchparam(re = randepoch, rd = randdemo, mp = multp, dd =densdepdemo) %>%
+                    landscape.new.floatparam(s = selfing) %>%
+                        landscape.new.local.demo( S, R, M) %>%
+                            landscape.new.epoch(S=epochS, R=epochR, M=epochM, epochprob = RndChooseProb, startgen = StartGen, 
+                                                extinct = Extinct, carry = Carry, localprob = Localprob) %>%
+          #12 loci
+          landscape.new.locus(type=model, ploidy=ploidy, mutationrate=mu,transmission=inherit, numalleles=numalleles, frequencies=freq) %>%
+          landscape.new.locus(type=model, ploidy=ploidy, mutationrate=mu,transmission=inherit, numalleles=numalleles, frequencies=freq) %>%
+          landscape.new.locus(type=model, ploidy=ploidy, mutationrate=mu,transmission=inherit, numalleles=numalleles, frequencies=freq) %>%
+          landscape.new.locus(type=model, ploidy=ploidy, mutationrate=mu,transmission=inherit, numalleles=numalleles, frequencies=freq) %>%
+          landscape.new.locus(type=model, ploidy=ploidy, mutationrate=mu,transmission=inherit, numalleles=numalleles, frequencies=freq) %>%
+          landscape.new.locus(type=model, ploidy=ploidy, mutationrate=mu,transmission=inherit, numalleles=numalleles, frequencies=freq) %>%
+          landscape.new.locus(type=model, ploidy=ploidy, mutationrate=mu,transmission=inherit, numalleles=numalleles, frequencies=freq) %>%
+          landscape.new.locus(type=model, ploidy=ploidy, mutationrate=mu,transmission=inherit, numalleles=numalleles, frequencies=freq) %>%
+          landscape.new.locus(type=model, ploidy=ploidy, mutationrate=mu,transmission=inherit, numalleles=numalleles, frequencies=freq) %>%
+          landscape.new.locus(type=model, ploidy=ploidy, mutationrate=mu,transmission=inherit, numalleles=numalleles, frequencies=freq) %>%
+          landscape.new.locus(type=model, ploidy=ploidy, mutationrate=mu,transmission=inherit, numalleles=numalleles, frequencies=freq) %>%
+          landscape.new.locus(type=model, ploidy=ploidy, mutationrate=mu,transmission=inherit, numalleles=numalleles, frequencies=freq) %>%
+          #using loci information and size of populations, create the starting population
+          landscape.new.individuals(initial_pop_structure)
+    }
+```
+
+
+#Test create.land function
+```{r}
+rland <- create.land()
+
+rland$individuals
+
+```
+
+
+## Set number for how many replicates, generations and samples to take for the simulation
+
+```{r}
+
+#How many times to replicate the simulation?
+rep <- 10
+
+#How many years between taking samples (storing entirety of rland$individuals) for later analysis?
+interval <- 200 # sample every n years
+
+#build a list of min-simulation sampling generations
+samplegens <- seq.int(interval, maxgen-interval, interval)
+print("Mid-run sampling times")
+print(samplegens)
+
+#In addition to this samplingly while running, we save the population at initial(0) and final times.
+#These do not need to be in this list - they happen before and after each run.
+nsamples = length(samplegens) + 2
+print(sprintf("A total of %s samples will be taken over time, saving information about individuals at start, end and every %s years", nsamples, interval))
+
+```
+
+
+
+## A function to run the simulation
+``` {r}
+#Define a function to run one simulation with the above parameters
+#only local input is which replicate are we on? this is used only for printing progress
+
+
+
+
+simulate <- function(r) {
+  out <- tryCatch({
+    #The try part - running the function
+    rland <- create.land() #sets up rland parameters and initial conditions for simulation; between simulation replicates, resets initial conditions
+  
+    #set up the datastructure to hold information saved for later analysis
+    individual_list = list() #holds rland$individuals for each sampled generation
+    individual_list[[1]] <- rland$individuals #immediately after setting up rland with create.land(), save the initial population (T0 data)
+    generation_list = list() #holds exactly as many elements as individual list, recording which generation was sampled.
+    generation_list[[1]] <- 0 #the one we have so far is time 0
+    samplingcounter = 2 # this will be used to track index as we add things to these lists - the next one added will be element 2
+  
+    #Start running the rmetasim functions that advance the simulation! Each round of this loop is one year.
+    for (gen in 1:maxgen) {
+      t0 = Sys.time()#note the time at the beginning of each generation
+      rland <- landscape.extinct(rland)
+      rland <- landscape.survive(rland)
+      rland <- landscape.reproduce(rland)
+      rland <- landscape.carry(rland)
+      rland <- landscape.advance(rland)
+
+      # check to see if it's time to sample yet - if so, store rland$individuals and rland$currentgen in their storage lists
+      if (gen %in% samplegens) {
+          individual_list[[samplingcounter]] <- rland$individuals
+          generation_list[[samplingcounter]] <- rland$intparam$currentgen
+          samplingcounter <- samplingcounter + 1 #now that sampling spot is full - move on to the next index for next time.
+          }
+    
+      tf = Sys.time() #note time after the completion of this generation (within loop)
+      #report progress
+      print(sprintf("Finished generation %s of %s in %s sec. On replicate %s of %s. %s hours since start.",
+                    rland$intparam$currentgen, maxgen, format(as.numeric(tf-t0,units="secs"), digits=3), r, rep,
+                    format(as.numeric(tf-t00,units="hours"), digits=3)))
+      #print population structure - number of individuals in each of 9 subpopulations (3 populations each with 4 age classes)
+      print(table(rland$individuals[,1])) #order: seed, seedling, juvenile, mature (population 1), then pop2seeds ...
+      }
+
+    #after running all the generations, top off the storage lists with the final values
+    individual_list[[samplingcounter]] <- rland$individuals
+    generation_list[[samplingcounter]] <- rland$intparam$currentgen
+
+    #create a single object to output (apply easier with one output)
+    output <- list(generation_list, individual_list)
+    return(output)
+    }, 
+    #Error handling instructions
+    error = function(condition) {
+      message(paste("The following error occured during replicate ", r))
+      message(condition)
+      # Choose a return value in case of error
+      message(paste("Save data from prior samples, up to generation ", generation_list[length(generation_list)]))
+      return(list(generation_list, individual_list)) #grab the dataest from the last time it was defined, before the break and use that instead - only will work if we have access to those variables in the scope.
+    },
+  finally = {
+    # finally happens no matter what happened above
+    print("Replicate complete, to the best of ability")
+  }
+      )
+  return(out)
+}
+
+```
+
+
+
+## Run the code
+```{r}
+#note the time just before starting simulations
+t00 = Sys.time()
+#For the number of replicates run above, run the simulation function.
+replist <- lapply(1:rep, simulate)
+
+# Save the results (change output file name!!!!)
+save(replist, file =
+"Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/Rmetasim/replist_1_19_17_V6_seed_test_5000gen.Rdata")
+
+```
+
+
+
+
+

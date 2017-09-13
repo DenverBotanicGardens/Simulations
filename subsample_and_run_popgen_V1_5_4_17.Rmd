@@ -1,0 +1,809 @@
+---
+title: "Subsample Phacelia data to estimate Fst uncertainty and sensitivity to sample size (V1)"
+author: "Jessie Berta-Thompson"
+date: "May 4, 2017"
+output: html_document
+---
+
+Purpose of this version, immediate tasks:
+Load in Phacelia data
+Subsample (write code to do this flexibly, but first 1000 samples 30 per location, then 2-30 per location.
+Run popgen stats (strataG)
+
+
+
+
+
+*************************************************************************************
+Set up: clear history and make sure you're in a good working directory. 
+Gather tools (reading and converting popgen data, running popgen calculations)
+```{r}
+rm(list=ls())
+print("Where are we? Where will new files without specified full path be created?")
+getwd()
+library(ape)
+library(phangorn)
+library(ade4)
+library(adegenet)
+library(apex)
+library(strataG)
+```
+*************************************************************************************
+Step 1. Get the Phacelia microsatellite data
+
+Read in the file (adegenet tools that take a genepop.gen file, make a genind object)
+```{r}
+Real_data.genind <-read.genepop("Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/Subsampling/Copy_of_real_data_PhfoAllGenePop_13Dec2016.gen")
+
+#Note one error message: "Duplicate individual names detected. Coercing them to be unique." This is because .gen file has no individual names, just a list of genotypes, but genind requires individual names. They are given numbers, in order of original file.
+```
+
+Take a look at the genind object
+```{r}
+print("Real data genind (by sampling population)")
+#print on whole object gives an overview
+print(Real_data.genind)
+
+#number of samples per location
+print(table(Real_data.genind$pop))
+
+#the 12 loci and their alleles?
+print(Real_data.genind$all.names)
+
+#for each individual (rows), the number of each allele of each locus
+print(Real_data.genind$tab[1:15,1:5])
+```
+
+This is one way of organizing the data - by sampling location. Sometimes we will be working off the 15 sample populations in this file, but we will also be working at the species level, so  we need to map these site codes to the three putative species across the site map - copy of a file that maps sites to species lives here:
+Q:\Research\All_Projects_by_Species\Phacelia SPECIES\Phacelia_formosula\Phacelia formosula_abiotic\Modelling\MetaPopGen\Copy_of_Species_data.xlsx
+
+Gathering required information in this file here:
+Q:\Research\All_Projects_by_Species\Phacelia SPECIES\Phacelia_formosula\Phacelia formosula_abiotic\Modelling\Subsampling\Summary_of_real_data.xlsx
+
+Convert list of populations to list of species
+```{r}
+#grab that list of populations and convert to a vector for easy manipulation
+pop_vector <- as.character(Real_data.genind@pop)
+
+#how long?
+print("population vector")
+print(length(pop_vector))
+data.class(pop_vector)
+print(pop_vector)
+
+#Make a new empty vector to hold the species version of this
+species_vector <- character(length = length(pop_vector))
+
+#make three character vectors with the mapping between species and populations
+scullyi <- as.character(c("HN", "HS", "F"))
+formosula <- as.character(c("CG", "D", "P","RN", "WS", "WA", "B", "V", "R", "AN", "AS"))
+gina_glenneae <- as.character(c("T"))
+
+#Loop through and perform mapping
+for (i in 1:length(pop_vector)) {
+  p <- pop_vector[i]
+  if (p %in% scullyi) {
+    species_vector[i] <- "s"}
+  else if (p %in% formosula) {
+    species_vector[i] <- "f"}
+  else if (p %in% gina_glenneae) {
+    species_vector[i] <- "g"}
+  else {
+    print("uhoh, population not found in library")
+  }
+}
+#how long?
+print("species vector")
+print(length(species_vector))
+data.class(species_vector)
+print(species_vector)
+
+#Make copies of the genind, and swap out the @pop factor for the species level designations. 
+real_data_by_loc.genind <- Real_data.genind #more accurate name
+real_data_by_species.genind <- Real_data.genind
+
+real_data_by_species.genind@pop <- factor(species_vector)
+
+#Species-based genind
+print("Species-based genind")
+print(real_data_by_species.genind)
+print(table(real_data_by_species.genind$pop))
+
+```
+One last manipulation, convert geninds to gtypes for strataG program that we're using to calculate Fst. 
+```{r}
+real_data_by_loc.gtypes <- genind2gtypes(real_data_by_loc.genind)
+print(real_data_by_loc.gtypes)
+
+real_data_by_species.gtypes <- genind2gtypes(real_data_by_species.genind)
+print(real_data_by_species.gtypes)
+```
+
+
+
+
+*************************************************************************************
+#Run the strataG analyses on the full original dataset, split both ways.
+Plus count time to get an idea of what these entail computationally.
+
+```{r}
+t0 = Sys.time()#note the time at the beginning
+real_by_species_oT <- overallTest(real_data_by_species.gtypes, nrep=1000)
+t1 = Sys.time()
+
+print(sprintf("***Done with overall test by species, which took %s minutes. %s minutes since start.***", format(as.numeric(t1-t0,units="mins"), digits=3), format(as.numeric(t1-t0,units="mins"), digits=3)))
+
+real_by_species_pT<- pairwiseTest(real_data_by_species.gtypes, nrep=1000)
+
+t2 = Sys.time()
+
+print(sprintf("***Done with pairwise test by species, which took %s minutes. %s minutes since start.***", format(as.numeric(t2-t1,units="mins"), digits=3), format(as.numeric(t2-t0,units="mins"), digits=3)))
+
+
+real_by_loc_oT <- overallTest(real_data_by_loc.gtypes, nrep=1000)
+
+t3 = Sys.time()
+
+print(sprintf("***Done with overall test by location, which took %s minutes. %s minutes since start.***", format(as.numeric(t3-t2,units="mins"), digits=3), format(as.numeric(t3-t0,units="mins"), digits=3)))
+
+
+real_by_loc_pT<- pairwiseTest(real_data_by_loc.gtypes, nrep=1000)
+
+t4 = Sys.time()
+
+print(sprintf("***Done with pairwise test by location, which took %s minutes. %s minutes since start.***", format(as.numeric(t4-t3,units="mins"), digits=3), format(as.numeric(t4-t0,units="mins"), digits=3)))
+
+filepath <- "full_data_strataG_results_5_4_17.RData" 
+save(real_by_species_oT, real_by_species_pT, real_by_loc_oT, real_by_loc_pT, file=filepath)
+t5 = Sys.time()
+
+print(sprintf("*** 4 tests done and saved. %s minutes since start.***", format(as.numeric(t5-t0,units="mins"), digits=3)))
+
+#trying to change settings to keep.null = TRUE 
+#throws an assignment error. 
+
+```
+
+
+Need to understand how bootstrapping is already implemented in here to get "permutation test" used to calculate P value. permutation test (~randomization test, exact test) also resamples data to build a distribution.
+
+Fst = 0 is full mixing. p value significance describes likelihood of non-zero results. 
+*************************************************************************************
+
+a list containing:
+
+strata.freq
+a vector of the sample sizes for each stratum
+
+result
+a matrix with the statistic estimate and p-value for each statistic
+
+null.dist
+a matrix with the null distributions for each statistic
+
+
+
+Subsampling from gtypes: gtypes objects can be sliced - these are first two loci from population f.
+
+real_data_by_species.gtypes[,1:2,"f"]
+
+R sampling example:
+set.seed(1234)
+# Extract 5 random rows without replacement
+sample_n(my_data, 5, replace = FALSE)
+
+This only gets one thing:
+> testsample <- sample(real_data_by_species.gtypes, 5, replace=TRUE)
+> print(testsample)
+
+Try with the genind.
+real_data_by_loc.genind 
+real_data_by_species.genind
+
+
+testsample <- sample(real_data_by_species.genind, 5, replace=TRUE)
+
+> testsample <- sample(real_data_by_species.genind, 5, replace=TRUE)
+> 
+> print(testsample)
+/// GENIND OBJECT /////////
+
+ // 5 individuals; 12 loci; 113 alleles; size: 23.6 Kb
+
+ // Basic content
+   @tab:  5 x 113 matrix of allele counts
+   @loc.n.all: number of alleles per locus (range: 5-18)
+   @loc.fac: locus factor for the 113 columns of @tab
+   @all.names: list of allele names for each locus
+   @ploidy: ploidy of each individual  (range: 2-2)
+   @type:  codom
+   @call: .local(x = x, i = i, j = j, drop = drop)
+
+ // Optional content
+   @pop: population of each individual (group size range: 5-5)
+   
+   This might work - but really describes more than just what we're seeing.
+   
+   maybe cleaner to get data back to simple format and reconvert?
+   aha - genind2df and df2genind.
+
+
+
+## simple example
+df <- data.frame(locusA=c("11","11","12","32"),
+locusB=c(NA,"34","55","15"),locusC=c("22","22","21","22"))
+row.names(df) <- .genlab("genotype",4)
+df
+
+obj <- df2genind(df, ploidy=2, ncode=1)
+obj
+obj@tab
+
+
+## converting a genind as data.frame
+genind2df(obj)
+genind2df(obj, sep="/")
+
+
+## simple example
+df <- data.frame(locusA=c("11","11","12","32"),
+locusB=c(NA,"34","55","15"),locusC=c("22","22","21","22"))
+row.names(df) <- .genlab("genotype",4)
+df
+
+obj <- df2genind(df, ploidy=2, ncode=1)
+obj
+tab(obj)
+
+
+## converting a genind as data.frame
+genind2df(obj)
+genind2df(obj, sep="/")
+
+There's one more piece to it of population assignments
+
+Other vectors:
+ind.names (row names)
+loc.names (column names)
+pop (population assignment vector for individuals)
+
+strata
+an optional data frame that defines population stratifications for your samples. This is especially useful if you have a hierarchical or factorial sampling design.
+we do have hierarchy! might want to learn this.
+
+
+
+
+Test out conversion into and out of dataframe. 
+```{r}
+#convert genind into a table, where the rows are individuals, the columns are loci, and the entries are alleles.
+#handling of population information can get messy, so nice to separate and put together for full control.
+poplist <- real_data_by_loc.genind$pop
+ind_locus_table.df <- genind2df(real_data_by_loc.genind, sep="-", pop = real_data_by_loc.genind$pop, usepop = FALSE)
+print(ind_locus_table.df[1:10,])
+
+#test conversion back
+reconvert.genind <- df2genind(ind_locus_table.df, sep="-", pop = poplist, ploidy=2, type="codom")
+
+#only difference between these two things is size 239.5 vs 239 kb (new one bigger)
+print(reconvert.genind) 
+print(real_data_by_loc.genind)
+
+print(reconvert.genind$tab)  
+print(real_data_by_loc.genind$tab)
+
+
+print(reconvert.genind$pop)  
+print(real_data_by_loc.genind$pop)
+
+#looking for differences, finding @call - where information came from is different. otherwise data looks the same. 
+
+loc_list <- real_data_by_loc.genind$pop
+species_list <- real_data_by_species.genind$pop
+
+
+```
+
+Ok, do that conversion, with a subsampling step in the middle. 
+
+```{r}
+#convert genind into a table, where the rows are individuals, the columns are loci, and the entries are alleles.
+#handling of population information can get messy, so nice to separate and put together for full control.
+ind_locus_table.df <- genind2df(real_data_by_loc.genind, sep="-", pop = real_data_by_loc.genind$pop, usepop = FALSE)
+
+#examine populations
+poplist <- real_data_by_loc.genind$pop
+popcounts <- as.numeric(table(poplist))
+popnames <- names(table(poplist))
+npop <- length(popnames)
+data.class(popcounts)
+data.class(popnames)
+print(table(poplist))
+print(popnames)
+print(popcounts)
+print(npop)
+
+
+listresults <- lapply(1:npop, function(p){
+  name <- popnames[p]
+  n <- popcounts[p]
+  resampled_rows <- sample(which(poplist== name), n, replace = TRUE)
+  print(resampled_rows)
+  #take rows from the data table and from population list
+  subsetdata <- ind_locus_table.df[resampled_rows,]
+  subsetpops <- poplist[resampled_rows]
+  return(list(subsetdata, subsetpops))
+  #for each population, returns a list with 2 things. first is a df, second is a character vector
+  })
+
+#extract output of lapply
+resampleddatalist <- lapply(listresults, function(sublist) {
+  sublist[[1]]
+})
+
+resampledpoplist <- lapply(listresults, function(sublist) {
+  sublist[[2]]
+})
+
+resampled.df <- do.call("rbind", resampleddatalist)
+
+resampledpops <- unlist(resampledpoplist)
+
+#put back into a genind.
+
+reconvert.genind <- df2genind(resampled.df, sep="-", pop = resampledpops, ploidy=2, type="codom")
+
+#only difference between these two things is size 239.5 vs 239 kb (new one bigger)
+print(reconvert.genind) 
+print(real_data_by_loc.genind)
+
+print(reconvert.genind$tab)  
+print(real_data_by_loc.genind$tab)
+
+print(reconvert.genind$pop)  
+print(real_data_by_loc.genind$pop)
+
+
+#looking for differences, finding @call - where information came from is different. otherwise data looks the same. 
+
+```
+
+
+Wrap in an lapply. resampled 1000 different times. go to each population, grab as many as there are sampled in that population, at random with replacement. each location getting bootstrapped.
+
+```{r}
+bootreps <- 1000
+
+onethousanddatasets <- lapply(1:bootreps, function(bootrep) {
+  
+  
+#convert genind into a table, where the rows are individuals, the columns are loci, and the entries are alleles.
+#handling of population information can get messy, so nice to separate and put together for full control.
+ind_locus_table.df <- genind2df(real_data_by_loc.genind, sep="-", pop = real_data_by_loc.genind$pop, usepop = FALSE)
+
+#examine populations
+poplist <- real_data_by_loc.genind$pop
+popcounts <- as.numeric(table(poplist))
+popnames <- names(table(poplist))
+npop <- length(popnames)
+data.class(popcounts)
+data.class(popnames)
+
+listresults <- lapply(1:npop, function(p){
+  name <- popnames[p]
+  n <- popcounts[p]
+  resampled_rows <- sample(which(poplist== name), n, replace = TRUE)
+  #take rows from the data table and from population list
+  subsetdata <- ind_locus_table.df[resampled_rows,]
+  subsetpops <- poplist[resampled_rows]
+  return(list(subsetdata, subsetpops))
+  #for each population, returns a list with 2 things. first is a df, second is a character vector
+  })
+
+#extract output of lapply
+resampleddatalist <- lapply(listresults, function(sublist) {
+  sublist[[1]]
+})
+
+resampledpoplist <- lapply(listresults, function(sublist) {
+  sublist[[2]]
+})
+
+resampled.df <- do.call("rbind", resampleddatalist)
+
+resampledpops <- unlist(resampledpoplist)
+
+#put back into a genind.
+
+reconvert.genind <- df2genind(resampled.df, sep="-", pop = resampledpops, ploidy=2, type="codom")
+#looking for differences, finding @call - where information came from is different. otherwise data looks the same. 
+
+print(sprintf("Done building bootstrapped dataset %s of %s", bootrep, bootreps))
+return(reconvert.genind)
+})
+
+
+```
+
+briefly check out that stuff.
+
+```{r}
+print(onethousanddatasets[7])
+data.class(onethousanddatasets[7])
+data.class(onethousanddatasets[[7]])
+
+filepath <- "1000_geninds_bootstrapped_match_sample_size_by_location_5_4_17.RData" 
+save(onethousanddatasets, file=filepath)
+
+
+```
+
+Then start popgen calculations.
+```{r}
+#For time's sake, only run 100 overnight. 
+bootreps <- 100
+t0 <- Sys.time()
+testresults <- lapply(1:bootreps, function(bootrep){
+  ts <- Sys.time()
+  boot.genind <- onethousanddatasets[[bootrep]]
+  print(data.class(boot.genind))
+  boot.gtypes <- genind2gtypes(boot.genind)
+  boot_oT <- overallTest(boot.gtypes, nrep=1000)
+  boot_pT <- pairwiseTest(boot.gtypes, nrep=1000)
+  tf <- Sys.time()
+  print(sprintf("***Done with rep %s of %s, which took %s minutes. %s hours since start.***", bootrep, bootreps, format(as.numeric(tf-ts,units="mins"), digits=3), format(as.numeric(tf-t0,units="hours"), digits=3)))
+
+return(list(boot_oT, boot_pT))
+}
+  )
+
+
+filepath <- "100_bootstrapped_popgen_calcs_match_sample_size_by_location_5_4_17.RData" 
+save(testresults, file=filepath)
+
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Below this copied from Metapopgen simulation output analysis -has relevant stuff for sampling.
+*************************************************************************************
+#Sample organisms + run stats
+
+Ok! now a function to take a single genotype * deme matrix from results, convert it into a list of individuals with properties, samples some of those individuals, and calculate strataG popgen stats overallTest and pairwiseTest
+
+To get a manageable dataset for calculations and to match real data, subsample full dataset. First, convert relevant parts of results array, which contains number of individuals for a variety of categories, into matrix listing individuals with their properties. 
+
+Enter thoughtful choices for nsample (number of individuals to sample for each deme/population) and nrep within strataG commands - how many permutations for statistical tests. For real, should do 1000, for quick play sets, 100. 
+```{r}
+#Make a function that takes a matrix from MetaPopGen output genotypes * demes and creates overall/pairwise test lists
+
+#example input matrix
+# practice_flowers <- Ns[1,,,2,500] #one rep, all genotypes, all demes, just flowering, one timepoint, 55*3
+
+calc_pop_stats <- function(genodeme_matrix) {
+
+#figure out how many individuals to expect:
+#for each deme, sum over genotypes
+sum_over_genotypes <- sapply(1:n, function(x){
+  all_genotypes <- genodeme_matrix[,x]
+  sum(all_genotypes)
+})
+
+#then add up the demes
+total_pop <- sum(sum_over_genotypes)
+
+pops <- c()
+alleles <- c()
+
+count = 0
+for (deme in 1:n) {
+  for (geno in 1:m) {
+    flowers <- genodeme_matrix[geno,deme]
+    allelic_subvector <- rep(genotypes[geno], flowers)
+    pop_subvector <- rep(paste("pop", deme, sep=""), flowers)
+    pops <- c(pops, pop_subvector)
+    alleles<- c(alleles, allelic_subvector)
+}  
+}
+print(sprintf("length of vectors %s %s; length of dataset %s ", length(pops), length(alleles), total_pop))
+
+matrix <- matrix(c(pops, alleles), nrow= length(pops))
+
+#loop over demes and sample
+nsample <- c(330, 71,30)  #per population, how many samples? formosula, scullyi, gina-glenneae
+sampled_matrix <- matrix(,nrow=0, ncol=2)#warning refers to  nothing fed in for main argument of function - this makes a weird little object, empty matrix of 2 columns that prints like this: [,1] [,2]
+for (deme in 1:n){
+  name <- paste("pop", deme, sep="")
+  rowstotake <- sample(which(matrix[,1] == name),nsample[deme])
+  #take rows
+  subset <- matrix[rowstotake,]
+  sampled_matrix <- rbind(sampled_matrix, subset)
+}
+#get tools
+library(strataG)
+#add ids
+id_sampled_matrix <- cbind(1:length(sampled_matrix[,1]), sampled_matrix)
+
+#make 2 new vectors, splitting out alleles
+allele1 <- c()
+allele2 <- c()
+for (row in 1:length(id_sampled_matrix[,1])){
+  #print(id_sampled_matrix[row,3])
+  allele1[row] <- unlist(strsplit(id_sampled_matrix[row,3],"-"))[1]
+  allele2[row] <- unlist(strsplit(id_sampled_matrix[row,3],"-"))[2]
+  }
+
+fancy_sampled_matrix <- cbind(id_sampled_matrix[,1:2], allele1, allele2)
+
+sampled_gtypes <- df2gtypes(fancy_sampled_matrix, ploidy=2, id.col=1, strata.col=2, loc.col=3)
+print(sampled_gtypes)
+oT <- overallTest(sampled_gtypes, nrep=1000)
+pT<- pairwiseTest(sampled_gtypes, nrep=1000)
+output<- list(oT, pT)
+
+return(output)
+}
+```
+
+test function
+```{r}
+tester= Ns[1,,,2,15] #one rep, all genotypes, all demes, just flowering, one timepoint
+testotpt <- calc_pop_stats(tester)
+```
+
+Implement a loop to run above function, calculating popgen stats for samples of flowerings plants from each population for all times and replicates. 
+```{r}
+
+#gather tools for parallelizing
+library(doParallel)
+library(parallel)
+library(abind)
+library(foreach)
+
+# Make a log file  
+logfile <- sprintf("%s_one_locus_logfile.txt", basename)
+writeLines(c(""), logfile )
+
+# Set up parallel abilities
+cl <- makeCluster(3)
+registerDoParallel(cl)
+
+ntimepoints <- length(Ns[1,1,1,1,])
+
+# Run the simulations
+t0 = Sys.time()#note the time at the beginning
+opener <- sprintf("Starting one locus calculations at %s", t0)
+write(opener,file=logfile,append=TRUE)
+
+popstats <- foreach(x = 1:nrepl, .packages = "strataG") %dopar% {
+                      t0i <- Sys.time() #beginning for this replicate
+                      #for each replicate, calculate popstats for all timepoints 
+                      onereplistovertime <- lapply(1:ntimepoints,function(t) {
+                        calc_pop_stats(Ns[x,,,2,t]) # 2 means flowers only
+                      })
+                      
+                      tfi <- Sys.time() #time done for this replicate
+  	                  
+                      #report progress and timing into log file.
+                      saverline <- sprintf("Done with replicate %s of %s, which took %s minutes. %s hours since start.", x, nrepl,format(as.numeric(tfi-t0i,units="mins"), digits=3), format(as.numeric(tfi-t0,units="hours"), digits=3))
+                      write(saverline,file=logfile,append=TRUE)
+                      
+                      onereplistovertime
+                    }
+                    
+stopCluster(cl)
+  
+
+filepath <- sprintf("%s_one_locus_popstat_results.RData", basename) 
+save(popstats, file=filepath)
+
+#do call to get list of lists into array
+
+```
+
+************************************************************************************************************
+Our actual data is multilocus. More powerful for inferring patterns. If loci are unlinked (+ hardy-weinberg), and demography is the same between replicates (or close enough), MetaPopGen replicates are like different loci, according to original population. Treating replicates like loci, we could build multilocus datasets. We could have replicates of those sets if we just ran more; shows what sampling 8 out of a larger distribution does. For testing more stochastic demography down the road, could make sets with identical demography in units of 12 loci, then switch to different random demography for next 12. 
+
+Build a multilocus object from output of MetaPopGen with replicates.
+Each replicate becomes a locus, all the replicates get squished into one multilocus dataset.
+
+```{r}
+#Make a function that takes an array from MetaPopGen output at one time point, and builds a multilocus genetic data object
+
+# example input array: practice_flowers <- Ns[,,,2,500] 
+# all reps, all genotypes, all demes, just flowering, one timepoint
+# 3d object: reps * genotypes * demes
+
+# Function definition: input a set of reps, output a multilocus calculation.
+build_multigtypes <- function(allreps_onetime) { 
+  
+  # how many reps/single locus runs?
+  nloci <- length(allreps_onetime[,1,1])
+  
+  # for each locus, dig into dataset and sample individuals. 
+  samples_for_each_locus <-  lapply(1:nloci, function(locus) { 
+  # figure out how many individuals to expect per deme
+    sum_over_genotypes <- sapply(1:n, function(x){ #looping over demes
+      all_genotypes <- allreps_onetime[locus,,x] #for each deme, take all genotypes
+      sum(all_genotypes) #sum up list of individuals of all genotypes
+    })
+
+    # then add up the demes - total number of individuals in this replicate at this timepoint
+    total_pop <- sum(sum_over_genotypes)
+
+    # initialize vectors to hold population and alleles data
+    pops <- c()
+    alleles <- c()
+    
+    # populate these vectors so that each individual is assigned a population and an allele
+    # loop over demes, loop over genotypes
+    for (deme in 1:n) {
+      for (geno in 1:m) {
+        flowers <- allreps_onetime[locus,geno,deme] #number of flowers of certain locus, genotype, and deme
+        allelic_subvector <- rep(genotypes[geno], flowers)#allele list for flowers in one genotype and deme
+        pop_subvector <- rep(paste("pop", deme, sep=""), flowers)#population assignments for those flowers
+        pops <- c(pops, pop_subvector) #add new one to preexisting one
+        alleles<- c(alleles, allelic_subvector)#add new one to preexisting one
+      }  
+    }
+    #make sure dimensions of alleles/pop assignment vectors match expected and eachother
+    print(sprintf("len vectors %s %s; len dataset %s ", length(pops), length(alleles), total_pop))
+    
+    # combine these two vectors into a matrix (they are the same length - two columns)
+    full_matrix <- matrix(c(pops, alleles), nrow= length(pops))
+    
+    #loop over demes and sample nsample individuals from each deme (probably 30 to match real)
+    nsample <- c(330, 71,30) #per population/deme, how many flowers to sample?
+    #initialize an empty matrix with 2 columns for pop and allele of each sampled individual
+    sampled_matrix <- matrix(,nrow=0, ncol=2)
+    for (deme in 1:n){#for each deme/population...
+      name <- paste("pop", deme, sep="") #which population are we on?
+       #for rows of data matrix where first column (pops) matches the pop we're on, randomly sample 30 rows
+      rowstotake <- sample(which(full_matrix[,1] == name),nsample[deme])
+      #take the rows based on randomly sampled indices
+      subset <- full_matrix[rowstotake,] #take all columns for sampling rows.
+      sampled_matrix <- rbind(sampled_matrix, subset) #add this deme's haul to the growing sampled matrix
+    }
+
+    #add ids, counting from start of sampled matrix.
+    id_sampled_matrix <- cbind(1:length(sampled_matrix[,1]), sampled_matrix)
+
+    #make 2 new vectors, splitting out alleles for this locus
+    allele1 <- c()
+    allele2 <- c()
+    for (row in 1:length(id_sampled_matrix[,1])){
+      #print(id_sampled_matrix[row,3])
+      allele1[row] <- unlist(strsplit(id_sampled_matrix[row,3],"-"))[1]
+      allele2[row] <- unlist(strsplit(id_sampled_matrix[row,3],"-"))[2]
+    }
+
+    split_sampled_matrix <- cbind(id_sampled_matrix[,1:2], allele1, allele2) #ids, pops, allele1, allele2
+    return(split_sampled_matrix)
+    })
+  
+  #combine list of sample matrices for each locus into a single dataframe in correct format
+  #ids and pops don't change, initialize matrix with those
+  first_matrix <- samples_for_each_locus[[1]]
+  growing_matrix <- first_matrix[,1:2]
+  #take first two cols from first example (same for all)
+  for (locus in 1:nloci) {
+    current_matrix <- samples_for_each_locus[[locus]]
+    just_alleles <- current_matrix[,3:4]
+    growing_matrix <- cbind(growing_matrix,just_alleles)
+  }
+  
+  sampled_gtypes <- df2gtypes(growing_matrix, ploidy=2, id.col=1, strata.col=2, loc.col=3)
+  print(sampled_gtypes)
+  oT <- overallTest(sampled_gtypes, nrep=1000)
+  pT<- pairwiseTest(sampled_gtypes, nrep=1000)
+  output<- list(oT, pT)
+return(output)
+}
+
+```
+
+
+test multilocus function
+```{r}
+tester= Ns[1:12,,,2,50] #all reps, all genotypes, all demes, just flowering, one timepoint
+test_multilocus_builder <- build_multigtypes(tester)
+print(test_multilocus_builder)
+```
+
+
+implement a loop over time and over replicates, squashing sets of (number of loci) replicates at each time into multilocus datasets. 
+```{r}
+#input dataset, number of loci to put into each multilocus set. make sure divisible ahead of time.
+#final product[list of replicate datasets], each of which is a list [results over time]
+total_reps <- length(Ns[,1,1,1,1])
+
+multiloci <- 12
+
+multireps <- total_reps/multiloci 
+
+ntimepoints <- length(Ns[1,1,1,1,])
+
+#gather tools for parallelizing
+library(parallel)
+library(doParallel)
+library(abind)
+library(foreach)
+
+# Make a log file  
+logfile <- sprintf("%s_multi_locus_logfile.txt", basename)
+writeLines(c(""), logfile )
+
+# Set up parallel abilities
+cl <- makeCluster(3)
+registerDoParallel(cl)
+
+ntimepoints <- length(Ns[1,1,1,1,])
+
+# Run the simulations
+t0 = Sys.time()#note the time at the beginning
+opener <- sprintf("Starting multi locus calculations at %s", t0)
+write(opener,file=logfile,append=TRUE)
+
+
+
+multilocus_reps <- foreach(mrep = 1:multireps, .packages = "strataG") %dopar% { 
+
+  #which of total reps go into this replicate of multi-version?
+  end <- mrep * multiloci
+  start <- end - (multiloci-1)
+  #this means the start:end subset of total replicates will be mashed into one multilocus object for analysis. 
+  multilocus_over_time <- lapply(1:ntimepoints,function(t) {
+    t0i <- Sys.time() #beginning for this tp
+    #feed function defined above some repliates, for all genotypes and demes, just flowers, one timepoint at a time. 3d thing [reps x genotypes X demes]
+    pop_results <- build_multigtypes(Ns[start:end,,,2,t]) #sample and do popgen calculations
+    tfi <- Sys.time() #time done for this tp
+  	#report progress and timing into log file.
+    saverline <- sprintf("Done with timepoint %s of %s for replicate %s of %s, which took %s minutes. %s hours since start.", t, ntimpoints, mrep, multireps,format(as.numeric(tfi-t0i,units="mins"), digits=3), format(as.numeric(tfi-t0,units="hours"), digits=3))
+    write(saverline,file=logfile,append=TRUE)
+    return(pop_results)#for one timepoint, 12 reps/loci at a time.
+  })
+  
+  return(multilocus_over_time)#for one set of 12 reps/loci, all the timpoints
+}
+
+stopCluster(cl)
+
+filepath <- sprintf("%s_multilocus%s_popstat_results.RData", basename, multiloci) 
+
+save(multilocus_reps, file=filepath)
+
+#load(filepath) #to load saved results. 
+#do call to get list of lists into array
+```
+
+
+
+
+

@@ -1,0 +1,124 @@
+---
+title: "Examining_results_of_strataG_for_100X_bootstraps_of_species_level_data"
+author: "Jessie Berta-Thompson"
+date: "May 5, 2017"
+output: html_document
+---
+
+
+*************************************************************************************
+## Set up
+Clear history and make sure you're in the right working directory for shorter file writes. 
+load in strataG results.
+```{r}
+rm(list=ls())
+print("Where are we? Where will new files without specified full path be created?")
+getwd()
+load("100_bootstrapped_popgen_calcs_match_sample_size_by_species_5_5_17.RData")
+
+#load in results for straight calculations (not bootstrapped) too.
+load("full_data_strataG_results_5_4_17.RData")
+
+```
+
+
+
+*************************************************************************************
+## Parse test results object to get FST for three pairwise comparisons
+```{r}
+nboot <- length(testresults)
+boot_fvg_Fst <- lapply(1:nboot, function(n){
+  pairwise <- testresults[[n]][[2]]
+  print(data.class(pairwise))
+  print(length(pairwise))
+  print(pairwise$result$pair.label[1])
+  print(pairwise$result$Fst[1])
+return(pairwise$result$Fst[1])
+  }
+)
+
+boot_fvs_Fst <- lapply(1:nboot, function(n){
+  pairwise <- testresults[[n]][[2]]
+  print(data.class(pairwise))
+  print(length(pairwise))
+  print(pairwise$result$pair.label[2])
+  print(pairwise$result$Fst[2])
+return(pairwise$result$Fst[2])
+  }
+)
+
+boot_gvs_Fst <- lapply(1:nboot, function(n){
+  pairwise <- testresults[[n]][[2]]
+  print(data.class(pairwise))
+  print(length(pairwise))
+  print(pairwise$result$pair.label[3])
+  print(pairwise$result$Fst[3])
+return(pairwise$result$Fst[3])
+  }
+)
+
+real_by_species_pT$result$pair.label[1]
+fvg_FST <- real_by_species_pT$result$Fst[1]
+
+real_by_species_pT$result$pair.label[2]
+fvs_FST <- real_by_species_pT$result$Fst[2]
+
+real_by_species_pT$result$pair.label[3]
+gvs_FST <- real_by_species_pT$result$Fst[3]
+
+
+```
+
+```{r}
+# Violin Plots
+#install.packages('vioplot')
+#library(vioplot)
+#jpeg( "violin_100xbootstraps_pairwiseFst_by_species.jpg", width = 600, height = 600 )
+pdf( "violin_100xbootstraps_pairwiseFst_by_species.pdf", width = 8, height = 8 )
+x1 <- unlist(boot_fvg_Fst)
+x2 <- unlist(boot_fvs_Fst)
+x3 <- unlist(boot_gvs_Fst)
+vioplot(x1, x2, x3, names=c("formosula vs. gina-glenneae", "formosula vs. scullyi", "gina-glenneae vs. scullyi"), 
+   col="purple", ylim = c(0, 0.35))
+
+title(main="100x bootstrapped Fst values pairwise by species ", sub="formosula (n=330), scullyi (n=71), gina-glenneae (n=30)", ylab="Fst")
+
+```
+
+
+```{r}
+#Bootstrap mean
+mean(unlist(boot_fvg_Fst))
+sd(unlist(boot_fvg_Fst))
+
+#calculated value
+fvg_FST
+
+#Bootstrap mean
+mean(unlist(boot_fvs_Fst))
+sd(unlist(boot_fvs_Fst))
+
+#calculated value
+fvs_FST
+
+#Bootstrap mean
+mean(unlist(boot_gvs_Fst))
+sd(unlist(boot_gvs_Fst))
+
+#calculated value
+gvs_FST
+
+  means <- c(mean(unlist(boot_fvg_Fst)), mean(unlist(boot_fvs_Fst)), mean(unlist(boot_gvs_Fst)))
+  dy <- c(sd(unlist(boot_fvg_Fst)), sd(unlist(boot_fvs_Fst)), sd(unlist(boot_gvs_Fst)))
+  names <- c("formosula vs. gina-glenneae", "formosula vs. scullyi", "gina-glenneae vs. scullyi")
+  
+  pdf( "barplot_100xbootstraps_pairwiseFst_by_species.pdf", width = 8, height = 8 )
+  plotTop <- max(means+dy*2)
+  barCenters <- barplot(means, names.arg=names, col="white", las=1, ylim=c(0,plotTop))
+  segments(barCenters, means-dy*2, barCenters, means+dy*2, lwd=2)
+  arrows(barCenters, means-dy*2, barCenters, means+dy*2, lwd=2, angle=90, code=3)
+  points(c(0.7,1.9,3.1),c(fvg_FST,fvs_FST,gvs_FST), pch = 1, cex=2, col="forest green")
+  
+  title(main="100x bootstrap replicates pairwise Fst by species", sub="barplot = bootstrap mean, standard deviation, green dot = full dataset value ", ylab="Fst")
+  
+```

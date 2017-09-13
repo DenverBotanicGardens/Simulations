@@ -1,0 +1,444 @@
+---
+title: "Analyze BayesAss migration posterior probabilities"
+author: "Jessie Berta-Thompson"
+date: "August 25, 2017"
+output: html_document
+---
+Ran 12 models (different population divisions) each for 20 replicate BayesAss runs. This script analyzes the output. 
+
+Also worked on this
+August 30, 2017
+August 31, 2017
+September 6, 2017
+
+#Load in libraries
+```{r}
+library(list)
+library(ggplot2)
+library(reshape2)
+```
+
+#Clear the environment and check the working directory.
+```{r}
+rm(list=ls()) #clears environment
+gc() #garbage collect prompts R to free up memory
+print("Where are we? Where will new files without specified full path be created?")
+getwd()
+#setwd() #if necessary, change working directory
+```
+
+#Gather model directory paths and names of models
+Make a list of directories containing the data and from those extract model names. These will be used later - run every time.
+```{r}
+#make a list of the directories containing the different models (BayesAss run with different population definitions)
+inputdir <- list.dirs("Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/BayesAss/12_runs", recursive=FALSE)
+
+#Parse directory names for model names. model_names in same order as inputdir.
+model_names = lapply(inputdir, function(path){
+  modelnamesmash = strsplit(path, "/")[[1]]
+  modelname = modelnamesmash[length(modelnamesmash)]
+  return(modelname)
+  })
+
+#Report back
+cat(noquote(sprintf("---Found %i model directories---\n", length(inputdir))))
+for(i in 1:length(model_names)){
+  cat(noquote(sprintf("%s\n", model_names[[i]])))
+  }
+```
+
+#Parse BayesAss data files and save as dataframes in .Rdata files ***No need to repeat this step - move on to loading!***
+Read data from in trace files produced by BayesAss, extract iteration number ("State"), log posterior probability ("LogProb"), and migration rates ("m.0..0.") from each replicate run and each model, and output one dataframe containing all reps (labelled) for each model.
+```{r}
+#Loop over the different population structures
+for(i in 1:length(inputdir)){
+  modelnamesmash = strsplit(inputdir[i], "/")[[1]]
+  modelname = modelnamesmash[length(modelnamesmash)]
+
+  #make a list of directories within each model directory - these are the replicates
+  repdir <- list.dirs(inputdir[i], recursive = FALSE)
+  print(sprintf("Model directory %s contains %i replicate directories.",modelname, length(repdir)))
+  
+  #make a list containing the likelihood traces for all replicates within this model
+  trace <- lapply(1:length(repdir), function(y){
+    #read in data
+    out <- read.table(paste(repdir[y],"/BA3trace.txt",sep=""),header=TRUE)
+    #add a column to the dataset representing replicate number (order of loop doesn't match order of replicates)
+    whichrep = as.integer(strsplit(repdir[y],"rep")[[1]][2])
+    print(sprintf("Working on replicate %i.", whichrep))
+    out$rep <- whichrep
+    print(colnames(out))
+    out
+  })
+  
+  all <- do.call(rbind, trace)
+  
+  filename = paste(modelname, "20reps_full_traces.Rdata", sep = "_")
+  save(all, file = filename)
+  print(sprintf("Data from model %s now reorganized and saved in %s.",modelname, filename))
+}
+```
+
+#Clean up as you go
+Memory is a challenge when working with this dataset. Clean up pieces from last loop that are not needed.
+```{r}
+rm(filename)
+rm(i)
+rm(modelname)
+rm(modelnamesmash)
+rm(repdir)
+rm(trace)
+rm(all)
+gc()
+```
+
+
+#Mapping population numbers assigned by program to population names
+For each model, there is a set of migration populations assigned to numbers. Extract the mapping between names and numbers from results files for each model. The mapping lives in a different BayesAss results file.  
+```{r}
+#loop over the different population structures in directories
+mappinglol <- lapply(1:length(inputdir), function(i){
+  modelname = model_names[i]
+
+  #make a list of directories within each model directory - these are the replicates
+  repdir <- list.dirs(inputdir[i], recursive = FALSE)
+  
+  #Work with the first replicate (all replicates will have the same model), find the results file
+  resultpath = list.files(path = repdir[1], pattern = "results.txt", full.names = TRUE)[[1]]
+  resultconn = file(description = resultpath, open = "r")
+  #read in files
+  thelines <- readLines(resultconn, warn = FALSE)
+  close(resultconn)
+  
+  indices <- unlist(lapply(1:length(thelines), function(i) {
+    ifelse(grepl("0->", thelines[i]), TRUE, FALSE)
+    }))
+  usefulline <- thelines[indices]
+  print(usefulline)
+  maps <- strsplit(usefulline, " ")[[1]][-1]
+  ordered_numbers<-lapply(maps, function(map){
+      number <- strsplit(map, "->")[[1]][1]
+      return(number)
+      })
+  ordered_names<-lapply(maps, function(map){
+      name <- strsplit(map, "->")[[1]][2]
+      return(name)
+      })
+  return(list(ordered_numbers, ordered_names))
+    })
+```
+ 
+# Plot each migration rate for each model on its own , 20 reps separate, boxplots. Allows comparison of replicates at a glance.
+Loop through the datasets, loading in the data. Main goal of this is to save plots; also produces a list of lists with mapping between m.0..0. migration rate names and real population names ***Don't rerun! time consuming and already have the plots!***
+```{r}
+#Loop over the models
+popnamepairmap <- lapply(1:length(model_names), function(i){ #for targeted tests, enter a number instead of 1:length(modelnames)
+  
+  #build path to dataset for current model and load file (MOVED FILES PRODUCED ABOVE TO A TIDER LOCATION)
+  storagedir <- "Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/BayesAss/R_analyses_of_results"
+  resultsfilename <- paste(storagedir,"/",model_names[i],"_20reps_full_traces.Rdata", sep="")
+  load(resultsfilename) #dataframe for this model. variable called "all"
+  
+  #take relevant part of the population number-name mapping list of lists and relevant model name.
+  mapping <- mappinglol[[i]]
+  model = model_names[i]
+  
+  #Exclude burnin (first 15%)
+  postburn <- all[all$State > 3000000,]
+  
+  #clean up first giant dataframe after building new giant dataframe
+  rm(all)
+  gc()
+  
+  #Which columns have migration rates? Exclude first two (State, LogProb) and last (rep). 
+  m_indices <- c(1:length(postburn))[-c(1:2,length(postburn))]
+  
+  #loop over migration rate columns
+  popname_pairs_one_model <- lapply(m_indices, function(m){
+    name <- names(postburn)[m] #grab column header
+    tofrom <- strsplit(name, "\\.")[[1]][c(2,4)] #pull just numbers from m.0..0. structure of names
+    toname <- mapping[[2]][which(mapping[[1]]== tofrom[1])] #map first number to correct population name
+    fromname <- mapping[[2]][which(mapping[[1]]== tofrom[2])] #map second number to correct population name
+    
+    #construct a more descriptive name
+    pop_name_pair = paste("fraction", toname, "from", fromname, sep = "")
+    
+    ylabel = paste(pop_name_pair, "\n", name, sep = "")
+    #make a plot 
+    filetosave = paste(storagedir, "/migration_reps_", model, "_",name,"_",pop_name_pair,".pdf", sep = "" )
+    ggplot(postburn, aes(rep,postburn[,m],group=rep))+
+    geom_boxplot()+
+    labs(x = "replicate", y= ylabel)+
+    ggsave(filename =filetosave)
+    
+    #output the new names so they're ready for later. 
+    return(pop_name_pair)
+    })
+  return(popname_pairs_one_model)
+})
+
+```
+
+
+# Try again with melting to get fewer figures - this did not work! crashes! don't melt these giant dataframes!
+
+
+#Try calculating means, sd,  and plotting those. still by rep. (soon combine) 
+```{r}
+#loop over models, loading in data only as needed, from preprocessed R object, then cleaning up.
+summary_stat_dataframe_list <- lapply(1:length(model_names), function(i){ 
+  #which model are we on?
+  model = model_names[[i]]
+  
+  #where does data live?
+  storagedir <- "Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/BayesAss/R_analyses_of_results"
+  
+  #pull one model's result file
+  resultsfilename <- paste(storagedir,"/",model,"_20reps_full_traces.Rdata", sep="")
+  load(resultsfilename) #dataframe for this model. variable called "all" will appear
+  
+  #Remove burnin
+  postburn <- all[all$State > 3000000,] #ditch first 15% of MCMC run as burnin
+  mapping = mappinglol[[i]] #necessary info for mapping pop numbers to pop names
+  #clean up first giant dataframe with everything after building new giant dataframe postburnin
+  rm(all)
+  gc()
+  
+  #which columns contain migration rates? Not the first two (state, logProb), not the last one (rep).
+  m_indices <- c(1:length(postburn))[-c(1:2,length(postburn))]
+
+  #MIGHT BE ABLE TO DELETE THIS
+  #loop over migration rate columns to map to more legible names
+  # popname_pairs <- lapply(m_indices, function(m){
+  #   name <- names(postburn)[m] #grab column header
+  #   tofrom <- strsplit(name, "\\.")[[1]][c(2,4)] #pull just numbers from m.0..0. structure of names
+  #   toname <- mapping[[2]][which(mapping[[1]]== tofrom[1])] #map first number to correct population name
+  #   fromname <- mapping[[2]][which(mapping[[1]]== tofrom[2])] #map second number to correct population name
+  #   #construct a more descriptive name
+  #   pop_name_pair = paste("Fraction of ", toname, " from ", fromname, sep = "")
+  #   return(pop_name_pair)
+  #   })
+  
+  #loop over migration rate columns again and calculate means, standard deviations, 2.5th and 97.5th percentiles
+  allms_allreps_summary_stats <- lapply(m_indices, function(m){
+    name <- names(postburn)[m] #grab column header
+    tofrom <- strsplit(name, "\\.")[[1]][c(2,4)] #pull just numbers from m.0..0. structure of names
+    toname <- mapping[[2]][which(mapping[[1]]== tofrom[1])] #map first number to correct population name
+    fromname <- mapping[[2]][which(mapping[[1]]== tofrom[2])] #map second number to correct population name
+    #construct a more descriptive name
+    pop_name_pair = paste("Fraction of ", toname, " from ", fromname, sep = "")
+    
+    #ok, done with labelling, time for some math.
+    #Loop over replicates
+    MeanSDrepQ25Q75 <- lapply(1:20, function(x){
+      mn <- mean(postburn[postburn$rep==x,m])
+      sd <- sd(postburn[postburn$rep==x,m])
+      q25975 <- quantile(postburn[postburn$rep==x,m],c(0.025,0.975))
+      out <- data.frame(mn,sd,q25975[1],q25975[2],x)
+      out
+    }) #end of loop over replicates
+    
+    #combine list of results for each replicate into one dataframe
+    MeanSDrepQ25Q75_all <- do.call(rbind,MeanSDrepQ25Q75)
+    #add columns for popname pair and name for this migration rate pair
+    all_out <- data.frame(pop_name_pair,name,MeanSDrepQ25Q75_all)
+    
+    return(all_out)
+    })#end loop over migration rate pairs
+  
+  #combine results for all migration rate pairs into one dataframe
+  all_all <- do.call(rbind,allms_allreps_summary_stats)
+  
+  #produce a list of dataframes, one for each model.
+  return(all_all)
+})
+```
+
+#Take a look at the dataframes
+```{r}
+
+renamedlistofdf <- lapply(1:length(model_names), function(mod) {
+  onemodel <- summary_stat_dataframe_list[[mod]]
+  whichmodel <- model_names[[mod]]
+  withmodel <- data.frame(whichmodel, onemodel)
+  colnames(withmodel) <- c("Model", "MigrationPairName","MigrationPairNum", "Mean", "StandardDeviation", "Percentile025","Percentile975","Rep")
+  return(withmodel)
+  
+})
+
+summary_reps_sep_df <- do.call(rbind, renamedlistofdf) 
+print(names(summary_reps_sep_df))
+print(ncol(summary_reps_sep_df))
+print(nrow(summary_reps_sep_df))
+
+
+save(summary_reps_sep_df, file = "Migration_summary_stats_by_rep_12_models_20reps.Rdata")
+#clean up intermediate lists (leave actual dataframe around)
+rm(renamedlistofdf)
+rm(summary_stat_dataframe_list)
+gc()
+```
+
+#Global Summary Stats combining replicates
+Now do the same thing as above of calculating summary stats, looping through big dataset, but average over all reps, for a single value for each rate.
+
+```{r}
+#loop over models
+global_summary_stat_dataframe_list <- lapply(1:length(model_names), function(i){ 
+  storagedir <- "Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/BayesAss/R_analyses_of_results"
+  resultsfilename <- paste(storagedir,"/",model_names[i],"_20reps_full_traces.Rdata", sep="")
+  load(resultsfilename) #dataframe for this model. variable called "all" will appear
+  model = model_names[[i]] #which model are we on?
+  postburn <- all[all$State > 3000000,] #ditch first 15% of data as burnin
+  mapping = mappinglol[[i]] #necessary info for mapping pop numbers to pop names
+  #clean up first giant dataframe with everything after building new giant dataframe postburnin
+  rm(all)
+  gc()
+  #which columns are migration rates?
+  m_indices <- c(1:length(postburn))[-c(1:2,length(postburn))]
+
+  
+  #loop over migration rate columns to get means, standard deviations, 2.5th and 97.5th percentiles
+  allms_allreps_summary_stats <- lapply(m_indices, function(m){
+    
+    name <- names(postburn)[m] #grab column header
+    tofrom <- strsplit(name, "\\.")[[1]][c(2,4)] #pull just numbers from m.0..0. structure of names
+    toname <- mapping[[2]][which(mapping[[1]]== tofrom[1])] #map first number to correct population name
+    fromname <- mapping[[2]][which(mapping[[1]]== tofrom[2])] #map second number to correct population name
+    #construct a more descriptive name
+    pop_name_pair = paste("Fraction of ", toname, " from ", fromname, sep = "")
+    
+    #ok, done with labelling, time for some math. 
+    #for this migration pair, calculate what you want
+    mn <- mean(postburn[,m]) #whole column for that migration pair
+    sd <- sd(postburn[,m])
+    q25975 <- quantile(postburn[,m],c(0.025,0.975))
+    CIlow <- mn-(1.96*sd)
+    CIhigh <- mn+(1.96*sd)
+    all_out <- data.frame(model, pop_name_pair,toname, fromname, name,mn,sd,q25975[1],q25975[2], CIlow, CIhigh)
+    colnames(all_out) <- c("Model", "MigrationPairName", "Fractionof", "From", "MigrationPairNum", "Mean", "StandardDeviation", "Percentile025","Percentile975", "CIlow95", "CIhigh95")
+
+    return(all_out)
+    })
+  
+  all_all <- do.call(rbind,allms_allreps_summary_stats)
+  
+})
+```
+
+
+
+
+#Package list of dataframes over models into a single dataframe
+```{r}
+summary_reps_combined_df <- do.call(rbind, global_summary_stat_dataframe_list) 
+print(names(summary_reps_combined_df))
+print(ncol(summary_reps_combined_df))
+print(nrow(summary_reps_combined_df))
+
+save(summary_reps_combined_df, file = "Migration_summary_stats_reps_combined_12_models_20reps.Rdata")
+
+```
+
+
+#Clean up intermediate data storage lists no longer needed (leave actual dataframes around)
+```{r}
+rm(onemodel)
+rm(global_summary_stat_dataframe_list)
+rm(renamedlistofdf)
+rm(summary_stat_dataframe_list)
+```
+
+
+#Make plots to view replicate run summary migration rate results
+```{r}
+#loop over models (one final plot per model scenario)
+lapply(1:length(model_names), function(mi) {
+  amodel <- model_names[[mi]]
+  justthismodeldf <- summary_reps_sep_df[summary_reps_sep_df$Model==amodel,]
+  print(amodel)
+  print(nrow(justthismodeldf))
+
+  
+  storagedir <- "Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/BayesAss/R_analyses_of_results"
+
+  filetosave <- paste(storagedir, "/mean_migration_reps_", amodel, ".jpg", sep = "" )
+  ggplot(justthismodeldf, aes(Rep,Mean))+
+    geom_point(size = 0.5)+
+    geom_ribbon(aes(ymin=Percentile025, ymax=Percentile975), alpha = 0.2, fill = "blue")+
+    #geom_errorbar(aes(ymin=Mean-StandardDeviation, ymax=Mean+StandardDeviation), width= 0.1)+
+    facet_wrap(~MigrationPairName)+
+    expand_limits(x = 0, y = 0)+
+    scale_x_continuous(expand = c(0, 0), limits = c(1,20)) + 
+    scale_y_continuous(expand = c(0, 0), limits = c(0,1))+
+    ggsave(filename = filetosave)
+ 
+})
+```
+
+
+
+
+#Make plots to view global summary migration rate results
+```{r}
+#loop over models (one final plot per model scenario)
+lapply(1:length(model_names), function(mi) {
+  amodel <- model_names[[mi]]
+  justthismodeldf <- summary_reps_combined_df[summary_reps_combined_df$Model==amodel,]
+  print(amodel)
+  print(nrow(justthismodeldf))
+
+  
+  storagedir <- "Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/BayesAss/R_analyses_of_results"
+
+  filetosave <- paste(storagedir, "/mean_migration_", amodel, ".jpg", sep = "" )
+  ggplot(justthismodeldf, aes(1, Mean))+
+    geom_col()+
+    #geom_ribbon(aes(ymin=Percentile025, ymax=Percentile975), alpha = 0.2, fill = "blue")+
+    #geom_errorbar(aes(ymin=Mean-StandardDeviation, ymax=Mean+StandardDeviation), width= 0.1)+
+    facet_wrap(~MigrationPairName)+
+    #expand_limits(x = 0, y = 0)+
+    #scale_x_continuous(expand = c(0, 0), limits = c(1,20)) + 
+    #scale_y_continuous(expand = c(0, 0), limits = c(0,1))+
+    ggsave(filename = filetosave)
+ 
+})
+```
+
+
+
+#Attempt a heatmap
+```{r}
+lapply(1:length(model_names), function(i) {
+  
+  model <- model_names[[i]]
+  justthismodeldf <- summary_reps_combined_df[summary_reps_combined_df$Model==model,]
+  print(model)
+  print(nrow(justthismodeldf))
+  exclude_diag <- justthismodeldf[justthismodeldf$Fractionof!=justthismodeldf$From,]
+  nonzero <- ifelse(exclude_diag$CIlow95<0, "ns", "*")
+  exclude_diag$nonzero <- as.factor(nonzero)
+  storagedir <- "Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/BayesAss/R_analyses_of_results"
+
+  filetosave <- paste(storagedir, "/heat_migration_", model, ".pdf", sep = "" )
+  ggplot(exclude_diag, aes(From, Fractionof))+
+    geom_tile(aes(fill=Mean), colour = "white")+
+    scale_fill_gradient(low = "white", high = "steelblue",na.value = "black")+ #limits = c(0,0.34)
+    geom_label(aes(label=nonzero))+
+    ggsave(filename = filetosave)
+    #geom_ribbon(aes(ymin=Percentile025, ymax=Percentile975), alpha = 0.2, fill = "blue")+
+    #geom_errorbar(aes(ymin=Mean-StandardDeviation, ymax=Mean+StandardDeviation), width= 0.1)+
+    #facet_wrap(~MigrationPairName)+
+    #expand_limits(x = 0, y = 0)+
+    #scale_x_continuous(expand = c(0, 0), limits = c(1,20)) + 
+    #scale_y_continuous(expand = c(0, 0), limits = c(0,1))+
+    
+  
+})
+
+
+
+```
+
+
+

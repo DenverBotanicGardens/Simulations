@@ -1,0 +1,94 @@
+---
+title: "Reformatting Phacelia microsatellite data for BayesAss"
+author: "Jessie Berta-Thompson"
+date: "June 8, 2017"
+output: html_document
+---
+
+## Set up and load in data
+The input is a simplified version of microsatellite data, originally from Phfo_ trunkated data_11-24-14 sheet of a spreadsheet.
+
+```{r}
+#clean up
+rm(list=ls())
+#current directory?
+getwd() #if needed, move with setwd()
+
+#load in data
+rawtable <- read.table("simplified_dataset_for_R.txt", header=TRUE, sep = "\t")
+
+#what format?
+head(rawtable)
+data.class(rawtable)
+dim(rawtable)
+
+```
+
+## Rearrange to get to BayesAss input format
+5 columns, separated by spaces:
+indivID	popID	locID	allele1	allele2
+
+```{r}
+# How long will the final dataframe be? (ind * loci)
+dims <- dim(rawtable) 
+data.class(dims)
+length(dims)
+
+#number of loci
+nl <- (dims[2] - 2)/2
+print(nl)
+
+#total number of individuals
+ni <- dims[1]
+
+#number of rows in dream dataframe
+nr <- ni * nl
+print(nr)
+
+
+#extract locus names
+headers <- colnames(rawtable)
+locus_cols <- headers[3:length(headers)]
+clean_up_locus_names <- unlist(lapply(locus_cols, function(inputstring) {
+  print(inputstring)
+  partway <- strsplit(inputstring, "\\.")[[1]][[1]]
+  print(partway)
+  finish <- strsplit(partway, "X")[[1]][[2]]
+  return(finish)
+})) 
+print(clean_up_locus_names)
+
+#every other one
+twox <- length(clean_up_locus_names)
+onex <- twox/2
+
+locus_names <- unlist(lapply(1:onex, function(i) {
+  clean_up_locus_names[2*i]
+}))
+print(locus_names)
+
+
+#loop over rows of original dataframe = individuals, and create rows of new one.
+converted.df <- do.call("rbind", lapply(c(1:ni), function(ind) { # loop over individuals ni (as index)
+  input_row <- rawtable[ind,]
+  one_ind_all_loci_list <- lapply (c(1:nl), function(loc){ 
+    # loop over loci, producing a list nl long, with a row for each locus for that individual.
+    onerow <- data.frame(indivID = input_row$Ind, 
+                         popID = input_row$Site, 
+                         locID =locus_names[loc], 
+                         allele1 = input_row[1,2+(2*loc)-1], 
+                         allele2 = input_row[1,2+(2*loc)])
+    return(onerow)
+  })
+  #convert list of df rows to a df
+  one_ind_all_loci.df <- do.call("rbind", one_ind_all_loci_list)
+  return(one_ind_all_loci.df)
+}))
+
+
+write.table(converted.df, "phacelia_bayesass_format.txt", sep=" ", row.names=FALSE, col.names = FALSE)
+
+
+
+
+```

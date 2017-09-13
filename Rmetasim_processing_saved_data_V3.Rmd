@@ -1,0 +1,346 @@
+---
+title: "Rmetasim_processing_saved_data_V3"
+author: "Jessie Berta-Thompson"
+date: "February 3, 2017"
+output:
+  html_document: default
+  pdf_document: default
+---
+## Version: using V6 2000 plants + seeds (2% plants total) + 5000 generations + 10 replicates, improve this script to plot more cleanly and explore more useful statistics. First goal, redo plotting for population counts with ggplot instead of messy looping.
+
+## Structure of Rmetasim output files that this script parses
+Each output file contains a replist, from one Rmetasim run, the structure of which is:
+[[[rep1 generations sampled list][rep1 rland$individuals list of matrices]] [[rep2 generations sampled list][rep2 rland$individuals list of matrices]]]
+replist is a list containing r objects, where r is the number of replicates, with a dataset for each replicate.
+Each of the replicate objects is a list containing 2 objects, a list containing the year for generations sampled and a list containing rland$individuals matrices with genetic data for each generation sampled.
+Sampling from nested lists:
+This is the first replicate's (1) individual list (2) containing rland$individuals for all time points
+replist[[1]][[2]]
+This is the first replicate's (1) list of generation times (1) that correspond to samples in individual list
+replist[[1]][[1]]
+
+## Processing rmetasim output
+Output datafiles from our Rmetasim runs contain a 'replist' list of lists with generations sampled and rland$individuals for each replicate.
+```{r}
+#clear environment
+rm(list =ls())
+#load desired dataset
+load("/Users/jessie/Documents/botanic/2_3_17_coding/replist_1_19_17_V6_seed_test_5000gen.Rdata") 
+
+#usual path example
+#load("Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/Rmetasim/replist_1_19_17_V6_seed_test_5000gen.Rdata")
+```
+
+
+## Extract some useful values about the dataset from its dimensions
+```{r}
+#How many replicates does this dataset contain?
+nreps = length(replist)
+print(sprintf("This dataset contains %s replicate simulations.", nreps))
+
+#How many time samples were collected for each replicate? How many time samples maximum? (a given replicate can have less than the input length of run when extinctions occur)
+nsamples_list <- list()
+for (i in 1:length(replist)){
+  nsamples <-length(replist[[i]][[1]])
+  nsamples_list[i] <- nsamples}
+
+maxsamples <- max(unlist(nsamples_list))
+print(sprintf("At most, %s time samples were collected.", maxsamples))
+
+#How many years of simulation does this represent?
+nyears_list <- list()
+for (i in 1:length(replist)){
+  nyears <-replist[[i]][[1]][length(replist[[i]][[1]])]
+  nyears_list[i] <- nyears}
+
+maxyears <- max(unlist(nyears_list))
+print(sprintf("At most, this simulation was run for %s years.", maxyears))
+
+#what years were sampled (for the longest)?
+index_of_longest <- which.max(unlist(nyears_list))
+sample_years <- replist[[index_of_longest]][[1]]
+print("These years were sampled:")
+print(unlist(sample_years))
+
+```
+
+
+## Working on a more sophisticated & generalizable plotting structure
+ggplot recommended for complicated plotting
+takes a dataframe as input
+```{r}
+library("reshape2")
+
+# get what you actually want to plot into a list of lists
+initial_ys <- lapply(1:nreps, function(n) {      # loop over replicates
+  lapply(replist[[n]][[2]], function(x) {          # loop over timepoints
+    nrow(x)})                                      # count the matrix rows = number of individuals at timepoint
+  })
+
+#for dataframe, need dimensions to match. Fill in zeros for lists with fewer generations to acheive.
+even_ys <- lapply(1:nreps, function(r) {
+  even_list = list()
+  for (i in 1:maxsamples) {
+    if (i%in% 1:length(initial_ys[[r]])) {
+      #print(sprintf("Data exists for rep # %s timepoint %s, use 0 for number of individuals", r,i ))
+      even_list[i] <- initial_ys[[r]][[i]]
+    }
+   else {
+      #print(sprintf("Data does not exist for rep # %s timepoint %s ", r,i ))
+      even_list[i] <- 0
+    }}
+    return(even_list)
+    })
+
+dataset_list <- c(list(sample_years), even_ys)
+#print(length(dataset_list))
+repnames <-unlist(lapply(1:nreps, function(x) {sprintf("Replicate%s",x)}))
+#print(repnames)
+columnnames <- c("Years", repnames)
+#print(columnnames)
+#print(length(columnnames))
+names(dataset_list) <- columnnames
+#print(dataset_list)
+
+# make data into a melted dataframe object for use by ggplot: list of lists, put together lists of counts over time as columns of a matrix, one for each replicate.
+length(dataset_list[[1]])
+data_matrix<- matrix(unlist(dataset_list), ncol=length(dataset_list), byrow=FALSE)
+#colnames(data_matrix) <- columnnames
+df <- data.frame(data_matrix)
+colnames(df) <- columnnames
+
+
+melteddata <- melt(df, id="Years")
+#print(melteddata)
+library(ggplot2)
+
+
+ggplot(melteddata, aes(Years, value, colour = variable))+
+  geom_line()+
+  theme_bw()
+
+
+```
+
+## Plot some simple features of the total Rland population counts
+```{r}
+jpeg("Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/Rmetasim/replist_1_19_17_V6_seed_test_5000gen.jpg", width=600, height=400, units="px")
+
+x1 <- replist[[1]][[1]] #list with values for generations sampled in replicate 1
+y1 <- lapply(replist[[1]][[2]], function(x) {nrow(x)}) #list of matrices containing the data about individuals; the number of rows of each matrix gets counted to give number of individuals.
+
+plot(x1,y1,xlim = c(0,maxyears), ylim=c(0,700000), main="Rland total inhabitants", sub = "5,000 years, 3 populations of 100,000 (98% seed), 4 age classes", xlab="Years", ylab="Total number of individuals")
+lines(x1,y1)
+
+for (i in 2:nreps) {
+xs <- replist[[i]][[1]] #list with values for generations sampled in replicate
+ys <- lapply(replist[[i]][[2]], function(x) {nrow(x)})
+ # list with matrices; count length of each matrix
+points(xs,ys)
+lines(xs,ys)
+}
+
+#calculate the mean value for the 20 replicates
+meanlist = list()
+for (i in 1:maxsamples) { #loop over time
+  values = list() #make an empty list to hold the values for all replicates at this timepoint
+  for (j in 1:nreps) { #loop over replicates
+    if(i %in% 1:length(replist[[j]][[1]]))
+      {
+      values[j] <- nrow(replist[[j]][[2]][[i]])
+    } else {values[j] <- 0}
+  }
+  meanlist[i] <- mean(unlist(values))
+}  
+
+
+lines(sample_years, meanlist, col=rgb(1,0,0,alpha=0.6), lwd=3)
+#points(sample_years, meanlist, col="red")
+
+legend(0,680000, c("Replicate simulations", "Mean"), lty=c(1,1), pch=c(1,NA), lwd=c(1,3), col = c("black", rgb(1,0,0,alpha=0.6)))
+
+dev.off()
+
+```
+
+
+```{r}
+# at time 0
+replist[[1]][[2]][1]
+
+library(adegenet)
+
+pops <- seq(0,4,2)
+
+rland.df <- data.frame(replist[[2]][[2]][26])
+
+
+
+alleles <- seq(7,29,2) #always start with 7, 29 = length of dataframe-1,
+
+# add mapping of columns to what is in them 
+# Combine alleles per locus to format for what genind wants
+rland.2genind <- sapply(alleles, function(x){
+  paste(rland.df[,x], rland.df[,x+1], sep = "-")
+})
+
+# find number of alleles over time - find when that is stable at what mutation rate? 
+
+rland.df$pop <- "pop3"
+rland.df$pop[rland.df$X1 < 8] <- "pop2"
+rland.df$pop[rland.df$X1 < 4] <- "pop1"
+
+#sample from 3, 7, and 11s
+table(rland.df$X1)
+
+frompops <- c(3,7,11)
+
+rows <- lapply(frompops, function(x){
+  n_pop <- length(rland.df$X1[rland.df$X1 == x])
+  if(n_pop > 0){
+    if(n_pop >= 30){
+      sample(which(rland.df$X1 == x),30)
+}   else {
+      sample(which(rland.df$X1 == x),n_pop)
+    }
+  }
+}
+  )
+
+rows <- do.call(c,rows)
+
+samp.rland.2genind <- rland.2genind[rows,]
+samp.rland.df <- rland.df[rows,]
+
+library(strataG)
+
+rland.genind <- df2genind(samp.rland.2genind, pop = samp.rland.df$pop, type = "codom", sep="-")
+class(rland.genind)
+rland.genind
+
+#how many alleles per locus (average)
+mean(rland.genind$loc.n.all)
+#or the full list
+rland.genind$loc.n.all
+#
+
+
+rland.gtypes <- genind2gtypes(rland.genind)
+
+ot <- overallTest(rland.gtypes)
+print(ot$result)
+#print(ot$result[1,])
+
+#print(ot$result[3,1])
+#print(ot$result[3,2])
+
+
+#data.class(ot$result)
+#print(ot$strata.freq)
+
+
+pws <- pairwiseTest(rland.gtypes)
+#print("And try to sample")
+#print(data.class(pws[1]$result))
+pws[1]$result
+#pws[1]$result[1,10]
+
+
+```
+
+
+
+
+
+
+
+## Structure of rland$individuals
+
+From "Creating Landscapes" vignette, what the columns in the rland$individuals table mean
+"The first six columns are always present and the last five shown here are a product of the choice of number of loci. The first column contains the individuals subpopulation and lifecycle stage (subpopulation = floor(x/rland\$intparam\$stages), lifecycle stage = x mod rland\$intparam\$stages). The second column is currently unused, always 0. The third column contains the generation in which the individual was born or created. The next three contain numerical ids for the individual, its mother and its father. After the first six columns the indivduals genetic code begins. The loci are shown in order with 2 columns for diploid loci and 1 column for haploid loci. The value of these columns represent the allele index of the allele the individual carries."
+
+
+
+
+
+
+## Early drafts of other processing step
+
+
+table of subpopulations
+#```{r}
+
+
+plot(replist[[1]][[1]], nrow(replist[[1]][[2]]))
+
+
+
+numind <- sapply(rland.list[[2]], function(x){
+  nrow(x)
+})
+subpops <- lapply(rland.list[[2]], function(x){
+  table(x[,1])
+})
+
+subpops <- do.call(rbind, subpops)
+head(subpops)
+
+subpops <- data.frame(subpops)
+subpops1<- melt(subpops, id.vars = rownames(subpops), value.name = "SubClass")
+
+ggplot(subpops, aes())
+
+#```
+
+
+
+# Population Genetic statistics
+#```{r}
+library(adegenet)
+
+pops <- seq(0,4,2)
+
+rland.df <- as.data.frame(replist[[1]][[2]][1])
+
+alleles <- seq(7,29,2)
+rland.2genind <- sapply(alleles, function(x){
+  paste(rland.df[,x], rland.df[,x+1], sep = "-")
+})
+
+
+rland.df$pop[rland.df$V1 == 0 | rland.df$V1 == 1 ] <- "pop1"
+rland.df$pop[rland.df$V1 == 2 | rland.df$V1 == 3 ] <- "pop2"
+rland.df$pop[rland.df$V1 == 4 | rland.df$V1 == 5 ] <- "pop3"
+
+# following doesn't work yet!
+rland.df$pop <- sapply(pops, function(x){
+  pop <- if(rland.df$V1 == x | rland.df$V1 == x+1){
+    paste("pop",x,sep="")
+  }
+  pop
+})
+
+str(rland.df)
+
+rland.df2genind <- data.frame(rland.df[,c(3,31)], rland.2genind)
+
+library(strataG)
+
+head(rland.df2genind)
+
+rland.genind <- df2genind(rland.df2genind[,-(1:2)], pop = rland.df2genind$pop, type = "codom", sep="-")
+class(rland.genind)
+rland.genind
+
+rland.gtypes <- genind2gtypes(rland.genind)
+
+overallTest(rland.gtypes)
+pairwiseTest(rland.gtypes)
+
+
+
+#```
+
+
+
+

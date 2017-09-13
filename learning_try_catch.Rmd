@@ -1,0 +1,305 @@
+---
+title: "learning_try_catch_code"
+author: "Jessie Berta-Thompson"
+date: "January 18, 2017"
+output: html_document 
+---
+## Default intro to rmarkdown file (about output)
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Learn how to use try-catch statements
+Project: modeling Phacelia populations in Rmetasim
+
+Problem: When populations go extinct in certain ways, rmetasim crashes, for example, the funny 'no spontaneous generation' error. This in itself is ok, for an individual run, since we'll have replicates (as long as they don't all go extinct), although it would be better if the program just carried the zeros and kept going with the extant populations. As is, our code running rmetasim involves repeating the simulation in an lapply (to produce the replicates), and the entire loop shuts down when there is an error anywhere. 
+
+Plan for Solution: I'd like to implement a try-catch function so that when an error occurs within an rmetasim simulation, the lapply continues to the next instance, rather than globally stopping. As a secondary, more complicated goal, I'd also like it if whatever data was produced up until the error could be salvaged. That's a trickier thing, because errors could be occuring at different steps, affecting the nature of the output at that moment - perhaps best would be to save data from one step before? And note that an error occured in the data file (perhaps with an NA/NULL type entry).
+
+This Document: is just exploring how these functions work, so that I can implement them correctly (they're a little complicated, and I'm still getting used to R basics)
+
+The tool: tryCatch
+from "?tryCatch" - "These functions provide a mechanism for handling unusual conditions, including errors and warnings." Start learning with the example at the end of the documentation.
+
+Additionally, some reasonable sounding advice/examples/tutorials live here
+http://stackoverflow.com/questions/12193779/how-to-write-trycatch-in-r
+http://mazamascience.com/WorkingWithData/?p=912
+
+
+
+
+## Example from tryCatch documentation (with my added comments single flag #, ## from documentation)
+```{r}
+# Not sure what the 1 does, finally is what happens at the end, after all the error catching
+tryCatch(1, finally = print("Hello"))
+# Running this prints "Hello" then returns 1. This is a case with no error (the function being tried is just the number 1; this gets tried, the finally step is reached and enacted within the try phase, then the function's output happens normally)
+
+
+# simpleError is part of tryCatch family, and contains a message, which becomes an R error
+# This is just a way to get an error produced to play with (better than f() = 1 to explore error handling)
+e <- simpleError("test error")
+# Running this makes a variable e
+
+## Not run: 
+ stop(e)
+# Running this returns an error (red) with the message contained in simpleError "Error: test error"
+# The stop function stops executation of the current expression and executes an error action
+# You can feed it error condition objects like e - it stops the action and gets the error message from e.
+
+ tryCatch(stop(e), finally = print("Hello"))
+# Running this returns "Hello" - the finally action, even though there was an error.
+# Nothing else is returned, because the function doesn't make anything except an error.
+
+ tryCatch(stop("fred"), finally = print("Hello"))
+# this returns an error "Error in tryCatchList(expr, classes, parentenv, handlers) : fred" 
+# then prints Hello. 
+# here the error is caused by trying to feed the tryCatch family expression stop something that has nothing to do with errors, instead of the kind of condition object it's expecting, and it throws an error. The try catch lets the error print to terminal, then proceeds to the finally step of saying hello.
+
+#the general form of this appears to be
+#tryCatch(function, finally = Action)
+#then in runs that function, while also dealing with errors and doing the finally.
+
+## End(Not run)
+tryCatch(stop(e), error = function(e) e, finally = print("Hello"))
+#function(e) creates a function with the e object available in it, then defines that function as e. usually there are brackets around that part, but this one is so small it doesn't matter.
+#error = is another option for trycatch.
+#this returns "Hello" and then <simpleError: test error>
+
+tryCatch(stop("fred"),  error = function(e) e, finally = print("Hello"))
+#this one returns
+# "Hello"
+#<simpleError in doTryCatch(return(expr), name, parentenv, handler): fred>
+#"test error" never appears
+
+
+#the following three examples seem to be testing different functionalities of the tryCatch family.
+#I'm not looking too deeply into them for now.
+
+withCallingHandlers({ warning("A"); 1+2 }, warning = function(w) {})
+# returns A[1] 3 (the A is red - a warning)
+# I guess this is a way to set up a warning - also red, but different than a warning
+
+## Not run: 
+{ withRestarts(stop("A"), abort = function() {}); 1 }
+#returns Error in doWithOneRestart(return(expr), restart) : A
+# then 1
+
+## End(Not run)
+withRestarts(invokeRestart("foo", 1, 2), foo = function(x, y) {x + y})
+#returns 3
+
+
+##--> More examples are part of
+##-->   demo(error.catching)
+
+```
+
+## Try a mini example of my own. just run a normal function, without errors, within a tryCatch frame.
+
+```{r}
+
+#make a simple function
+addOne <- function(x) {
+  return(x+1)
+}
+
+#test that simple function
+print("Testing function")
+addOne(2)
+# returns 3 (good)
+
+#run that function in a tryCatch statement
+print("Testing tryCatch of function")
+tryCatch(addOne(2), finally = print("phew"))
+# prints "phew", then returns 3.
+
+#Great - that simple wrapping doesn't affect function much. Finally isn't that useful, since it happens every time - we need this tool to do different things than the normal function only when error crop up.
+
+#Now try to break that simple adding function and get it to throw an error and handle it with tryCatch
+
+# Try to get function to throw an error
+print("make an adding error:")
+addOne(interesting)
+#had to start a new chunk, because chunk running ends with error.
+# returns a great error - "Error in adding(1, interesting) : object 'interesting' not found""
+```
+```{r}
+#Now try running that error prone command within the tryCatch.
+print("Testing tryCatch on an adding error")
+tryCatch(addOne(interesting), finally = print("phew"))
+#this prints an error, prints "phew", then ends the chunk (still shuts everything down)
+#need more pieces to this to get the graceful exit we need
+```
+```{r}
+#What happens if this is in an lapply?
+print("First run the simple function in an lapply in an easy case")
+easy_input_list = c(1, 2, 3, 4, 5)
+output_list <- lapply(easy_input_list, addOne)
+print(output_list)
+
+#then try it with an error-prone entry
+print("Run the simple function in an lapply in a breaking case")
+easy_input_list = c(1, 2, "a", 4, 5)
+attempted_output_list <- lapply(easy_input_list, addOne)
+print(attempted_output_list)
+
+```
+``` {r}
+#then try it with the try catch version.
+
+#first store the try catch version of the function in a new name
+tryaddOne <- function(x) {
+  out <- tryCatch(addOne(x), finally = print("phew"))
+  return(out)
+  }
+
+print("Run the tryCatch version of the function in an lapply in a simple case")
+easy_input_list = c(1, 2, 3, 4, 5)
+output_list <- lapply(easy_input_list, tryaddOne)
+print(output_list)
+#interesting. the finally "phew" prints 5 times, as lapply runs."
+
+
+#Now try with a bad argument.
+print("Run the tryCatch version of the function in an lapply in a hard case")
+hard_input_list = c(1, 2, "a", 4, 5)
+attempted_output_list <- lapply(hard_input_list, tryaddOne)
+print(attempted_output_list)
+#ok - this is a good analog to our real problem. figure out how to gracefully exit from the trycatch.
+
+```
+
+
+## Learn how to gracefully exit
+
+So far I can run the tryCatch without breaking anything worse, but the above don't actually help.
+Working from an example from one of the online tutorials to get the next step. 
+
+
+``` {r}
+
+safelytryaddOne <- function(x) {
+  out <- tryCatch(
+    {#first the try
+      print("Trying")
+      addOne(x)
+    },
+    #second is error handling instructions
+    error = function(condition) {
+      message(paste("Value seems to be problematic:", x))
+      message("Here's the original error message:")
+      message(condition)
+      # Choose a return value in case of error
+      return(NA)
+    },
+        #there is a way to also handle warnings, but it didn't work for me from example
+  finally = {
+    # finally happens no matter what happened above
+    print("Step complete, to the best of ability")
+  }
+      )
+  return(out)
+}
+
+
+
+#Test this version on an easy case
+print("Test adding 1 + 1")
+safelytryaddOne(1)
+
+
+#and a hard case
+print("Test adding 1 + the letter a")
+safelytryaddOne("a")
+#Nice! no errors stopping chunk/console. but thorough reporting and graceful exit.
+
+```
+
+
+## Now try running that in an lapply
+
+```{r}
+#Easy case in an lapply
+print("Run the tryCatch version of the function in an lapply in a simple case")
+easy_input_list = c(1, 2, 3, 4, 5)
+output_list <- lapply(easy_input_list, safelytryaddOne)
+print(output_list)
+#seems fine. the "trying" and finally "Step complete" prints 5 times, as lapply runs. output looks fine.
+```
+
+
+
+```{r}
+#hard case in an lapply
+print("Run the tryCatch version of the function in an lapply in a hard case")
+hard_input_list = c(1, 2, "a", 4, 5)
+print(hard_input_list)
+
+attempted_output_list <- lapply(hard_input_list, safelytryaddOne)
+print(attempted_output_list)
+
+#Ok, but that time the fact that there was a warning created the NA, not my code. Need a new example to cause errors. I tried adding a warning catch, but it threw an error - for now not so worried about warnings, if there are Rmetasim warnings we'll hope they're handled well. Focus on errors. Need new example error to test this properly. I guess old version makes the point.
+
+
+```
+
+
+
+```{r}
+#hard case in an lapply
+print("Run the tryCatch version of the function in an lapply in a hard case")
+hard_input_list = c(1, 2, "a", 4, 5)
+print(hard_input_list)
+# aha - a vector can only contain one kind of thing (strings or numbers in this case). add a line to convert to number?
+
+
+moresafelytryaddOne <- function(x) {
+  out <- tryCatch(
+    {#first the try
+      print("Trying")
+      y=as.integer(x)
+      addOne(y)
+    },
+    #second is error handling instructions
+    error = function(condition) {
+      message(paste("Value seems to be problematic:", x))
+      message("Here's the original error message:")
+      message(condition)
+      # Choose a return value in case of error
+      return(NA)
+    },
+        #there is a way to also handle warnings, but it didn't work for me from example
+  finally = {
+    # finally happens no matter what happened above
+    print("Step complete, to the best of ability")
+  }
+      )
+  return(out)
+}
+
+
+attempted_output_list <- lapply(hard_input_list, moresafelytryaddOne)
+print(attempted_output_list)
+
+#Ok, but that time the fact that there was a warning created the NA, not my code. Need a new example to cause errors. I tried adding a warning catch, but it threw an error - for now not so worried about warnings, if there are Rmetasim warnings we'll hope they're handled well. Focus on errors. Need new example error to test this properly. I guess old version makes the point.
+
+
+```
+
+
+```{r}
+#Try hard case in an lapply with a list instead of a vector
+print("Run the tryCatch version of the function in an lapply in a hard case")
+hard_input_list = list(1, 2, "a", 4, 5)
+print(hard_input_list)
+
+attempted_output_list <- lapply(hard_input_list, safelytryaddOne)
+print(attempted_output_list)
+
+#Ok, but that time the fact that there was a warning created the NA, not my code. Need a new example to cause errors. I tried adding a warning catch, but it threw an error - for now not so worried about warnings, if there are Rmetasim warnings we'll hope they're handled well. Focus on errors. Need new example error to test this properly. I guess old version makes the point.
+
+
+```
+
+## Ok! This is at least a frame for using this tool. Now try to implement in Rmetasim code. 

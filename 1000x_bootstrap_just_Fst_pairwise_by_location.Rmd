@@ -1,0 +1,82 @@
+---
+title: "1000x_bootstrap_just_Fst_pairwise_by_location"
+author: "Jessie Berta-Thompson"
+date: "May 5, 2017"
+output: html_document
+---
+
+Load in big bootstrapped dataset for by-site splits
+
+
+
+
+*************************************************************************************
+Set up: clear history and make sure you're in a good working directory. 
+Gather tools (reading and converting popgen data, running popgen calculations)
+load bootstrapped dataset
+```{r}
+rm(list=ls())
+print("Where are we? Where will new files without specified full path be created?")
+getwd()
+library(ape)
+library(phangorn)
+library(ade4)
+library(adegenet)
+library(apex)
+library(strataG)
+
+load("1000_geninds_bootstrapped_match_sample_size_by_location_5_4_17.RData")
+
+```
+*************************************************************************************
+
+
+Then start popgen calculations. This time, full 1000, but only Fst for pairwise.
+```{r}
+bootreps <- 1000
+t0 <- Sys.time()
+testresults <- lapply(1:bootreps, function(bootrep){
+  ts <- Sys.time()
+  boot.genind <- onethousanddatasets[[bootrep]]
+  print(data.class(boot.genind))
+  boot.gtypes <- genind2gtypes(boot.genind)
+  boot_oT <- overallTest(boot.gtypes, nrep=1000)
+  boot_pT_onlyFst <- pairwiseTest(boot.gtypes, stats=c("Fst"), nrep=1000)
+  tf <- Sys.time()
+  print(sprintf("***Done with rep %s of %s, which took %s minutes. %s hours since start.***", bootrep, bootreps, format(as.numeric(tf-ts,units="mins"), digits=3), format(as.numeric(tf-t0,units="hours"), digits=3)))
+
+return(list(boot_oT, boot_pT_onlyFst))
+}
+  )
+
+
+filepath <- "1000_bootstrapped_popgen_calcs_match_sample_size_by_location_onlyFst_pairwise_5_5_17.RData" 
+save(testresults, file=filepath)
+
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

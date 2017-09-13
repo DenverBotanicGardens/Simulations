@@ -1,0 +1,114 @@
+---
+title: "Calculating_Bayesian_Deviance_12_runs_20_reps"
+author: "Jessie Berta-Thompson"
+date: "September 7, 2017"
+output: html_document
+---
+Continue work september 13, 2017
+
+Faubet et al., 2007 & Meirmans 2014 recommend that when running BayesAss you should protext yourself from runs that did not converge (got stuck near boundaries of prior) with the following steps:
+1) Run  multiple replicates
+2) Calculate Bayesian deviance (a measure of model fit) "to discriminate runs that converged from those that did not"
+3) Present only results from the run with the lowest D (rather than averaging replicates)
+
+
+## Usual warm up clean up shop
+```{r}
+#clear environment
+rm(list=ls())
+gc()
+getwd()
+
+```
+
+## Calculate Bayesian Deviance for 12 models 20 replicate runs to choose best replicate for analysis
+Use formula from script provided by Meirmans in supplemental material (quoted at bottom)
+```{r}
+#make a list of the directories containing the different model & rep results (BayesAss run with different population definitions)
+inputdir <- list.dirs("Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/BayesAss/12_runs", recursive=FALSE)
+print(sprintf("Found %i model directories.", length(inputdir)))
+
+#loop over the different model directories
+Ds_all_models_replicates <- lapply(1:length(inputdir), function(x){
+  modelnamesmash = strsplit(inputdir[x], "/")[[1]]
+  modelname = modelnamesmash[length(modelnamesmash)]
+
+  #make a list of directories within each model directory - these are the replicates
+  repdir <- list.dirs(inputdir[x], recursive = FALSE)
+  print(sprintf("Model directory %s contains %i replicate directories.",modelname, length(repdir)))
+  
+  #make a list containing the probability traces for all replicates within this model
+  rep_Ds <- lapply(1:length(repdir), function(y){
+    
+    # Change this value to the actual burnin used for your MCMC run
+    burnin = 3000000
+    # Change this value to the actual sampling interval used for your MCMC run
+    sampling.interval = 200
+    
+    #read in data
+    whichrep = as.integer(strsplit(repdir[y],"rep")[[1]][2])
+    print(sprintf("Working on replicate %i.", whichrep))
+    trace=read.table(paste(repdir[y],"/BA3trace.txt",sep=""), header=TRUE)
+    
+    # Plotting the likelihoods is always a good idea
+    pdf(paste("simple_logprob_trace_",modelname,"_rep",whichrep,".pdf", sep = ""))
+    plot(trace$State,trace$LogProb, xlab="Iteration", ylab="Log(likelihood)", type="l", lwd=2, col="darkslateblue", font.lab=2)
+    # Draw a vertical line to indicate the end of the burnin
+    abline(v=burnin, col="grey70", lty=2)
+    dev.off()
+    
+    png(filename=paste("simple_logprob_trace_",modelname,"_",whichrep,".png", sep =""))
+    plot(trace$State,trace$LogProb, xlab="Iteration", ylab="Log(likelihood)", type="l", lwd=2, col="darkslateblue", font.lab=2)
+    # Draw a vertical line to indicate the end of the burnin
+    abline(v=burnin, col="grey70", lty=2)
+    rect(xleft = 0, ybottom = -Inf, xright = burnin, ymax = Inf, col= rgb(0.85,0.85,0.85,alpha=0.5))+
+    dev.off()
+    
+    # Calculate the deviance
+    range = (trace$State > burnin & trace$State %% sampling.interval == 0)
+    D = -2*mean(trace$LogProb[range])
+
+    return(D)
+  })
+  
+  return(rep_Ds)
+  
+}
+)
+```
+
+
+
+Source Material:
+
+# calculateDeviance.R; Patrick G. Meirmans (2013) Non-convergence in Bayesian estimation of migration rates, Molecular Ecology Resources; Supplementary Material
+
+# This script will calculate the Bayesian Deviance from the output of BayesAss (Wilson & Rannala 2003)
+# For more information on the use of the deviance, see Faubet et al. (2007)
+
+# To use this script, run BayesAss version 3 with the -t flag to produce a trace-file
+# Then set the working directory of R to the folder with the output from BayesAss
+
+# Change this value to the actual burnin used for your MCMC run
+burnin = 1000000
+# Change this value to the actual sampling interval used for your MCMC run
+sampling.interval = 2000
+
+
+# Read the data from the trace file
+trace=read.table("BA3trace.txt", header=TRUE)
+
+# Plotting the likelihoods is always a good idea
+plot(trace$State,trace$LogProb, xlab="State", ylab="LogProb", type="l", lwd=2, col="firebrick3", font.lab=2)
+# Draw a vertical line to indicate the end of the burnin
+abline(v=burnin, col="grey70", lty=2)
+
+# Calculate the deviance
+range = (trace$State > burnin & trace$State %% sampling.interval == 0)
+D = -2*mean(trace$LogProb[range])
+
+# Print the result to the console
+print(D)
+
+
+

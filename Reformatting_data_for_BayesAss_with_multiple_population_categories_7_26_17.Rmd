@@ -1,0 +1,375 @@
+---
+title: "Reformatting Phacelia microsatellite data for BayesAss"
+author: "Jessie Berta-Thompson"
+date: "June 8, 2017"
+output: html_document
+---
+
+## Set up and load in data
+The input is a simplified version of microsatellite data, originally from Phfo_trunkated data_11-24-14, sheet of ??? spreadsheet.
+
+```{r}
+#clean up
+rm(list=ls())
+#current directory?
+getwd() #if needed, move with setwd()
+
+#load in data
+rawtable <- read.table("simplified_dataset_for_R.txt", header=TRUE, sep = "\t")
+
+#what format?
+head(rawtable)
+data.class(rawtable)
+dim(rawtable)
+
+```
+## To this dataframe, add population designations for different ways of separating the sites.
+
+```{r}
+# By Species
+scullyi <- as.character(c("HN", "HS", "F"))
+formosula <- as.character(c("CG", "D", "P","RN", "WS", "WA", "B", "V", "R", "AN", "AS"))
+gina_glenneae <- as.character(c("T"))
+
+species <- unlist(lapply(rawtable$Site, function(site) {
+  if (site %in% scullyi) {
+    answer <- "scullyi"
+  }
+  else if (site %in% formosula) {
+    answer <- "formosula"
+  }
+  else if (site %in% gina_glenneae) {
+    answer <- "gina-glenneae"
+  }
+  return(answer)
+}))
+
+rawtable$Species <- species
+rawtable$Species <- as.factor(rawtable$Species)
+
+# See if it worked by looking at column names and spot checking a few
+colnames(rawtable)
+head(rawtable)
+tail(rawtable)
+```
+
+
+```{r}
+# Combine close pairs: pairs that break BayesAss program at 2/3 max migrant prior are combined
+fine_alone <- as.character(c("F","CG","D","P","WA","R","T"))
+hnhs <- as.character(c("HN", "HS"))
+rnws <- as.character(c("RN", "WS"))
+bv <- as.character(c("B", "V"))
+anas <- as.character(c("AN", "AS"))
+
+combine_close_pairs <- unlist(lapply(rawtable$Site, function(site) {
+  if (site %in% fine_alone) {
+    answer <- as.character(site)
+  }
+  else if (site %in% hnhs) {
+    answer <- "HNHS"
+  }
+  else if (site %in% rnws) {
+    answer <- "RNWS"
+  }
+  else if (site %in% bv) {
+    answer <- "BV"
+  }
+  else if (site %in% anas) {
+    answer <- "ANAS"
+  }
+  return(answer)
+}))
+
+rawtable$CombineClosePairs <- combine_close_pairs
+rawtable$CombineClosePairs <- as.factor(rawtable$CombineClosePairs)
+
+# See if it worked by looking at column names and spot checking
+head(rawtable)
+print(combine_close_pairs)
+```
+
+```{r}
+# 2 formosula clusters
+#by species, except splitting formosula in two, based on geography, clustering and Fst.
+
+scullyi <- as.character(c("HN", "HS", "F"))
+north_formosula <- as.character(c("CG", "D", "P","RN", "WS", "WA", "B", "V"))
+south_formosula <- as.character(c("R", "AN", "AS"))
+gina_glenneae <- as.character(c("T"))
+
+two_formosula_clusters <- unlist(lapply(rawtable$Site, function(site) {
+  if (site %in% scullyi) {
+    answer <- "scullyi"
+  }
+  else if (site %in% north_formosula) {
+    answer <- "NF"
+  }
+  else if (site %in% south_formosula) {
+    answer <- "SF"
+  }
+  else if (site %in% gina_glenneae) {
+    answer <- "gina-glenneae"
+  }
+  return(answer)
+}))
+
+rawtable$TwoFormoClust <- two_formosula_clusters
+rawtable$TwoFormoClust <- as.factor(rawtable$TwoFormoClust)
+
+# See if it worked by looking at column names and spot checking a few
+rawtable[which(rawtable$Site == "AN"), ] #grabs rows for AN site
+rawtable[which(rawtable$Site == "D"), ]
+```
+
+```{r}
+# 3 formosula clusters
+#by species, except splitting formosula in two, based on geography, clustering and Fst, and moving most different site, WA, to its own category.
+
+scullyi <- as.character(c("HN","HS","F"))
+west_formosula <- as.character(c("CG","D","P","RN","WS","B","V"))
+alone <- as.character(c("WA"))
+south_formosula <- as.character(c("R","AN","AS"))
+gina_glenneae <- as.character(c("T"))
+
+three_formosula_clusters <- unlist(lapply(rawtable$Site, function(site) {
+  if (site %in% scullyi) {
+    answer <- "scullyi"
+  }
+  else if (site %in% west_formosula) {
+    answer <- "WF"
+  }
+  else if (site %in% alone) {
+    answer <- as.character(site)
+    print(answer)
+  }
+  else if (site %in% south_formosula) {
+    answer <- "SF"
+  }
+  else if (site %in% gina_glenneae) {
+    answer <- "gina-glenneae"
+  }
+  return(answer)
+}))
+
+rawtable$ThreeFormoClust <- three_formosula_clusters
+rawtable$ThreeFormoClust <- as.factor(rawtable$ThreeFormoClust)
+
+# See if it worked by looking at column names and spot checking a few
+rawtable[which(rawtable$Site == "WA"), ] #grabs rows for AN site
+rawtable[which(rawtable$Site == "D"), ]
+```
+
+
+```{r}
+# 4 formosula clusters
+#by species, except splitting formosula in two, based on geography, clustering and Fst, and moving most different sites, WA and CG, each to their own category.
+
+scullyi <- as.character(c("HN","HS","F"))
+central_formosula <- as.character(c("D","P","RN","WS","B","V"))
+alone <- as.character(c("WA", "CG"))
+south_formosula <- as.character(c("R","AN","AS"))
+gina_glenneae <- as.character(c("T"))
+
+four_formosula_clusters <- unlist(lapply(rawtable$Site, function(site) {
+  if (site %in% scullyi) {
+    answer <- "scullyi"
+  }
+  else if (site %in% central_formosula) {
+    answer <- "CF"
+  }
+  else if (site %in% alone) {
+    answer <- as.character(site)
+  }
+  else if (site %in% south_formosula) {
+    answer <- "SF"
+  }
+  else if (site %in% gina_glenneae) {
+    answer <- "gina-glenneae"
+  }
+  return(answer)
+}))
+
+rawtable$FourFormoClust <- four_formosula_clusters
+rawtable$FourFormoClust <- as.factor(rawtable$FourFormoClust)
+
+# See if it worked by looking at column names and spot checking a few
+rawtable[which(rawtable$Site == "CG"), ] #grabs rows for AN site
+rawtable[which(rawtable$Site == "D"), ]
+```
+
+
+## Rearrange to get to BayesAss input format
+5 columns, separated by spaces:
+indivID	popID	locID	allele1	allele2
+
+In current form, loci are columns; rearrange so each locus in each individual is one row.
+#Do some legwork to sort out new table properties and get locus names in useful form.
+```{r}
+## How long will the final dataframe be? (ind * loci)
+# What are dimensions of current dataframe
+dims <- dim(rawtable) 
+data.class(dims)
+length(dims)
+print(dims)
+
+#number of loci - should be 12 for this study. 
+colnames(rawtable)
+length(colnames(rawtable))
+number_of_non_locus_columns = 7
+nl <- (dims[2] - number_of_non_locus_columns)/2
+print(nl)
+
+#total number of individuals
+ni <- dims[1]
+
+#number of rows in dream dataframe = ind * loci
+nr <- ni * nl
+print(nr)
+
+#extract locus names
+ints <- sapply(rawtable, is.integer) #only integer data in dataframe is locus data. get only integers
+locus_cols <- colnames(rawtable[,ints]) #get headers for only integers slice of dataframe.
+
+#loci column names are in this format: "X2638...1" "X2638...2" 
+clean_up_locus_names <- unlist(lapply(locus_cols, function(inputstring) {
+  print(inputstring)
+  #split at "." and take first piece.
+  partway <- strsplit(inputstring, "\\.")[[1]][[1]]
+  print(partway)
+  #split at "X" and take second piece.
+  finish <- strsplit(partway, "X")[[1]][[2]]
+  return(finish)
+})) 
+print(clean_up_locus_names)
+
+#grab every other one - now there are repeats. preserve order.
+twox <- length(clean_up_locus_names)
+onex <- twox/2
+locus_names <- unlist(lapply(1:onex, function(i) {
+  clean_up_locus_names[2*i]#always take second one.
+}))
+print(locus_names)
+```
+
+
+#For each desired output file in the 6 different population organizations, build a dataframe.
+
+```{r}
+CreateFile <- function(popsys) {
+  #loop over rows of original dataframe (all individuals), and create rows of new one.
+  converted.df <- do.call("rbind", lapply(c(1:ni), function(ind) { # loop over individuals ni (as index)
+  input_row <- rawtable[ind,]
+  one_ind_all_loci_list <- lapply (c(1:nl), function(loc){ 
+    # loop over loci, producing a list nl long, with a row for each locus for that individual.
+    onerow <- data.frame(indivID = input_row$Ind, 
+                         popID = input_row[,popsys], 
+                         locID =locus_names[loc], 
+                         allele1 = input_row[1,2+(2*loc)-1], 
+                         allele2 = input_row[1,2+(2*loc)])
+    return(onerow)
+  })
+  #convert list of df rows to a df
+  one_ind_all_loci.df <- do.call("rbind", one_ind_all_loci_list)
+  return(one_ind_all_loci.df)
+}))
+
+filename <- paste("phacelia_bayesass_input_",popsys, ".txt", sep = "")
+print(filename)
+write.table(converted.df, filename, sep=" ", row.names=FALSE, col.names=FALSE, quote=FALSE)
+}
+```
+Try using function to create files.
+```{r}
+CreateFile("Site")
+CreateFile("Species")
+CreateFile("CombineClosePairs")
+CreateFile("TwoFormoClust")
+CreateFile("ThreeFormoClust")
+CreateFile("FourFormoClust")
+```
+
+## Finally, do all the same stuff but for a dataset without troublesome creek.
+
+```{r}
+NoTroubleTable <- rawtable[which(rawtable$Site != "T"),]
+
+## How long will the final dataframe be? (ind * loci)
+# What are dimensions of current dataframe
+dims <- dim(NoTroubleTable) 
+
+#number of loci - should be 12 for this study. 
+number_of_non_locus_columns = 7
+nl <- (dims[2] - number_of_non_locus_columns)/2
+print(nl)
+
+#total number of individuals
+ni <- dims[1]
+print(ni)
+
+#number of rows in dream dataframe = ind * loci
+nr <- ni * nl
+print(nr)
+
+#extract locus names
+ints <- sapply(NoTroubleTable, is.integer) #only integer data in dataframe is locus data. get only integers
+locus_cols <- colnames(NoTroubleTable[,ints]) #get headers for only integers slice of dataframe.
+
+#loci column names are in this format: "X2638...1" "X2638...2" 
+clean_up_locus_names <- unlist(lapply(locus_cols, function(inputstring) {
+  #print(inputstring)
+  #split at "." and take first piece.
+  partway <- strsplit(inputstring, "\\.")[[1]][[1]]
+  #print(partway)
+  #split at "X" and take second piece.
+  finish <- strsplit(partway, "X")[[1]][[2]]
+  return(finish)
+})) 
+print(clean_up_locus_names)
+
+#grab every other one - now there are repeats. preserve order.
+twox <- length(clean_up_locus_names)
+onex <- twox/2
+locus_names <- unlist(lapply(1:onex, function(i) {
+  clean_up_locus_names[2*i]#always take second one.
+}))
+print(locus_names)
+```
+
+
+#For each desired output file in the 6 different population organizations, build a dataframe.
+```{r}
+CreateFileNoTrouble <- function(popsys) {
+  #loop over rows of original dataframe (all individuals), and create rows of new one.
+  converted.df <- do.call("rbind", lapply(c(1:ni), function(ind) { # loop over individuals ni (as index)
+  input_row <- NoTroubleTable[ind,]
+  one_ind_all_loci_list <- lapply (c(1:nl), function(loc){ 
+    # loop over loci, producing a list nl long, with a row for each locus for that individual.
+    onerow <- data.frame(indivID = input_row$Ind, 
+                         popID = input_row[,popsys], 
+                         locID =locus_names[loc], 
+                         allele1 = input_row[1,2+(2*loc)-1], 
+                         allele2 = input_row[1,2+(2*loc)])
+    return(onerow)
+  })
+  #convert list of df rows to a df
+  one_ind_all_loci.df <- do.call("rbind", one_ind_all_loci_list)
+  return(one_ind_all_loci.df)
+}))
+
+filename <- paste("phacelia_bayesass_input_",popsys, "_excludingTroublesomeCreek.txt", sep = "")
+print(filename)
+write.table(converted.df, filename, sep=" ", row.names=FALSE, col.names=FALSE, quote=FALSE)
+}
+```
+Try using function to create files.
+```{r}
+CreateFileNoTrouble("Site")
+CreateFileNoTrouble("Species")
+CreateFileNoTrouble("CombineClosePairs")
+CreateFileNoTrouble("TwoFormoClust")
+CreateFileNoTrouble("ThreeFormoClust")
+CreateFileNoTrouble("FourFormoClust")
+```
+
+```

@@ -1,0 +1,447 @@
+---
+title: "plotting_strataG_results_for_subsampling_phacelia_dataset_5_25_17.Rmd"
+author: "Jessie Berta-Thompson"
+date: "May 16, 2017"
+output: html_document
+---
+*************************************************************************************
+## Set up
+Clear history and make sure you're in the right working directory,  load in subsampling strataG results.
+```{r}
+rm(list=ls())
+here <- getwd()
+print(here)
+#then setwd() to where you want to be if wrong.
+setwd("Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/Subsampling")
+#look for files of interest
+#list.files(here)
+result_files <- list.files(here, pattern="_Fst_calcs_subsample_1000x_by_location_5_16_17.RData")
+```
+
+Start some manipulations to organize the files
+```{r}
+#extract n from file name
+nvalues_from_file <- strtoi(unlist(lapply(result_files, function(filename) {
+  strsplit(filename, "n_")[[1]][[1]]
+})))
+
+inputinforaw <- data.frame(files=result_files, n=nvalues_from_file, stringsAsFactors = FALSE)
+sortorder <- order(inputinforaw["n"])
+inputinfosorted <- inputinforaw[sortorder,]
+row.names(inputinfosorted) <- c(1:dim(inputinfosorted["n"])[1])
+```
+
+figure out how to load and store the results
+```{r}
+simplevector <- as.character(inputinfosorted$files)
+print(data.class(simplevector))
+print(length(simplevector))
+
+
+list_of_results <- lapply(simplevector, function(filename){
+  print(filename) #progress monitor + ordercheck. 
+  load(filename) #this loads a variable called thousand reps
+  return(thousandreps)
+})
+
+
+```
+
+
+Figure out how to access whatever that created
+```{r}
+#The whole thing is a list of 25 objects (the 25 ns done so far)
+print(data.class(list_of_results))
+print(length(list_of_results))
+
+#Each of those items is a list of length 1
+print(data.class(list_of_results[1]))
+print(length(list_of_results[1]))
+
+#Each of those contains a list of 1000 (the 1000 replicates of the n sampling)
+print(data.class(list_of_results[[1]]))
+print(length(list_of_results[[1]]))
+
+#Each of those 1000 objects is a list of length 1.
+print(data.class(list_of_results[[1]][1]))
+print(length(list_of_results[[1]][1]))
+
+#Each of those 1000 lists contains a list of 3 elements, the strataG results. 
+print(data.class(list_of_results[[1]][[1]]))
+print(length(list_of_results[[1]][[1]]))
+
+#Those three elements are: $result, $pair.mat, $null.dist
+print(data.class(list_of_results[[1]][[1]]))
+print(length(list_of_results[[1]][[1]]))
+print(list_of_results[[1]][[1]])
+
+#what we want lives in $result.
+print(list_of_results[[1]][[1]]$result$pair.label)
+print(list_of_results[[1]][[1]]$result$Fst)
+print(list_of_results[[1]][[1]]$result$Fst.p.val)
+
+```
+
+Build a dataframe with full dataset in easy-access form. 
+```{r}
+ns <- as.integer(inputinfosorted$n)
+
+#loop over ns
+data.df <- do.call(rbind, lapply(1:length(ns), function(i) {
+#loop over reps
+  allreps_for_one_n <- lapply(1:length(list_of_results[[i]]), function(r) {
+    #grab just one result - one n, one rep.
+    onerep <- list_of_results[[i]][[r]]
+    len <- length(onerep$result$Fst)
+    column1 = rep(ns[i], len)
+    column2 = rep(r, len)
+    column3 = onerep$result$pair.label
+    column4 = onerep$result$Fst
+    column5 = onerep$result$Fst.p.val
+
+    one.df <- data.frame(n = column1, 
+                         rep = column2, 
+                         pairs = column3,
+                         Fst = column4, 
+                         pval = column5)
+    return(one.df)
+  })
+  onen.df <- do.call(rbind, allreps_for_one_n)
+}))
+
+```
+
+
+To this dataframe add more factor descriptors flushing out pair label information
+```{r}
+#Extract the two sites from the pair as separate quantities and add to dataframe as additional factors
+
+first_site<- unlist(lapply(as.character(data.df$pairs), function(compstring) {
+  first <- strsplit(compstring, " ")[[1]][[1]]
+}))
+second_site<- unlist(lapply(as.character(data.df$pairs), function(compstring) {
+  second <- strsplit(compstring, " ")[[1]][[4]]
+}))
+
+#check them out
+print(length(first_site))
+print(length(second_site))
+print(first_site[1:5])
+print(second_site[1:5])
+print(first_site[493:582])
+print(second_site[24567:24572])
+
+data.df$site1 <- first_site
+data.df$site2 <- second_site
+
+```
+
+
+```{r}
+# Add Species designations for first and second of comparison pairs.
+scullyi <- as.character(c("HN", "HS", "F"))
+formosula <- as.character(c("CG", "D", "P","RN", "WS", "WA", "B", "V", "R", "AN", "AS"))
+gina_glenneae <- as.character(c("T"))
+
+species1 <- unlist(lapply(first_site, function(site) {
+  if (site %in% scullyi) {
+    answer <- "scullyi"
+  }
+  else if (site %in% formosula) {
+    answer <- "formosula"
+  }
+  else if (site %in% gina_glenneae) {
+    answer <- "gina-glenneae"
+  }
+  return(answer)
+}))
+
+species2 <- unlist(lapply(second_site, function(site) {
+  if (site %in% scullyi) {
+    answer <- "scullyi"
+  }
+  else if (site %in% formosula) {
+    answer <- "formosula"
+  }
+  else if (site %in% gina_glenneae) {
+    answer <- "gina-glenneae"
+  }
+  return(answer)
+}))
+
+#check them out
+print(length(species1))
+print(length(species2))
+print(species1[1:5])
+print(species2[1:5])
+print(species1[493:582])
+print(species2[24567:24572])
+
+data.df$species1 <- species1
+data.df$species2 <- species2
+
+```
+
+
+```{r}
+#Add Counties (equivalent to species; but perhaps we'd want to label things geographically)
+county1 <- unlist(lapply(species1, function(sp) {
+  if (sp == "scullyi") {
+    co <- "Larimer"
+  }
+  else if (sp == "formosula") {
+    co <- "Jackson"
+  }
+  else if (sp == "gina-glenneae") {
+    co <- "Grand"
+  }
+  else {
+    print("uh-oh. mapping fail.")
+  }
+}))
+
+county2 <- unlist(lapply(species2, function(sp) {
+  if (sp == "scullyi") {
+    co <- "Larimer"
+  }
+  else if (sp == "formosula") {
+    co <- "Jackson"
+  }
+  else if (sp == "gina-glenneae") {
+    co <- "Grand"
+  }
+  else {
+    print("uh-oh. mapping fail.")
+  }
+}))
+
+data.df$county1 <- county1
+data.df$county2 <- county2
+```
+
+
+```{r}
+#Add combinations of species and counties
+species_pair <- unlist(lapply(1:length(species1), function(i) {
+  pair <- paste(species1[i], "vs.", species2[i]) 
+}))
+
+data.df$speciespair <- factor(species_pair, levels = c("formosula vs. gina-glenneae", "formosula vs. formosula", "scullyi vs. formosula", "scullyi vs. scullyi", "scullyi vs. gina-glenneae"))
+```
+
+```{r}
+counties_pair <- unlist(lapply(1:length(species1), function(i) {
+  pair <- paste(county1[i], "vs.", county2[i]) 
+}))
+
+data.df$countypair <- factor(counties_pair, levels = c("Jackson vs. Grand","Jackson vs. Jackson","Larimer vs. Jackson", "Larimer vs. Larimer", "Larimer vs. Grand"))
+```
+
+```{r}
+#Add one more, sorting by whether pair in a comparison is from the same county/species or different.
+same_or_mixed <- unlist(lapply(1:length(species1), function(i) {
+  if ( species1[i] == species2[i] ) {
+    result <- "same species" #if you prefer county/species language, change these strings
+  }
+  else {
+    result <- "different species"
+  }
+  return(result)
+}))
+
+data.df$samespecies <- factor(same_or_mixed)
+```
+
+
+```{r}
+#load in results forstrataG Fst calculations on phacelia microsatellite data.
+load("full_data_strataG_results_5_4_17.RData")
+```
+
+##Average over replicates
+```{r}
+#loop over values of n
+mean_rep.df <- do.call(rbind, lapply(1:length(ns), function(i) {
+    onevaluen.df <- data.df[data.df$n == ns[i],]
+
+    #loop over instances of pairs
+    one_n <- lapply(unique(data.df$pairs), function(pair) {
+        one_n_one_pair.df <- onevaluen.df[data.df$pairs == pair,]      
+        fstmean = mean(one_n_one_pair.df$Fst)
+        fststdev = sd(one_n_one_pair.df$Fst)
+        #same for pvalue
+        pvalmean = mean(one_n_one_pair.df$)
+        pvalstdev = sd(one_n_one_pair.df$Fst)
+        #then build up a dataframe. 
+    })
+  
+  
+  
+  
+  
+}))
+
+
+
+```
+
+
+
+##Start plotting
+
+```{r}
+#So organized! Time to plot! In different orders! Other stats too, not just Fst - functionitize and repeat when done (enter stat) or add to data frame for combinations. 
+library(ggplot2)
+pdf(file = "samp_pairwise_Fst_color_by_comparison_species_alpha_order_5_16_17.pdf", width = 12, height = 5)
+
+ggplot() + 
+  geom_point(data=fst.df, mapping=aes(x = fst.df$Pair, y=fst.df$Fst,  color = fst.df$SpeciesComparison), size=3 )+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  ggtitle("Fst values for all pairwise comparisons between 15 sites: alphabetical order")+
+  xlab("Pairwise comparisons")+
+  ylab("Fst")+
+  theme(legend.title=element_blank())+
+  theme(plot.title = element_text(hjust = 0.5))+
+  theme(legend.position="top")+
+  scale_colour_manual(values=c("green4", "royalblue", "darkorchid","#DC143C", "#FF9000" ))
+```
+
+
+
+
+
+
+
+
+
+
+
+old plotting stuff from plain dataset that might come in handy. 
+********************************************************************************************
+
+## Color by species comparison, order original alphabetical order
+```{r}
+#So organized! Time to plot! In different orders! Other stats too, not just Fst - functionitize and repeat when done (enter stat) or add to data frame for combinations. 
+library(ggplot2)
+pdf(file = "real_data_pairwise_Fst_color_by_comparison_species_alpha_order_5_16_17.pdf", width = 12, height = 5)
+
+ggplot() + 
+  geom_point(data=fst.df, mapping=aes(x = fst.df$Pair, y=fst.df$Fst,  color = fst.df$SpeciesComparison), size=3 )+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  ggtitle("Fst values for all pairwise comparisons between 15 sites: alphabetical order")+
+  xlab("Pairwise comparisons")+
+  ylab("Fst")+
+  theme(legend.title=element_blank())+
+  theme(plot.title = element_text(hjust = 0.5))+
+  theme(legend.position="top")+
+  scale_colour_manual(values=c("green4", "royalblue", "darkorchid","#DC143C", "#FF9000" ))
+```
+
+## Reorder according to Fst value, keeping same color scheme by species comparison
+```{r}
+#change factor levels order to sort category-style x-axis. 
+
+#make a copy  of the data frame to manipulate.
+sorted_by_Fst.df <- fst.df 
+
+#grab relevant pieces
+unsorted_Fsts <- sorted_by_Fst.df$Fst
+unsorted_Names <- sorted_by_Fst.df$Pair
+
+#make the Fsts vector into a numeric with names
+names(unsorted_Fsts) <- unsorted_Names
+
+#sort Fst values
+sortedFsts <- sort(unsorted_Fsts)
+
+#see what that did to the names (good, out of order)
+print(names(sortedFsts))
+pairs_sorted_by_Fst_value <- names(sortedFsts)
+
+#change order of levels
+sorted_by_Fst.df$Pair <- factor(sorted_by_Fst.df$Pair, levels = pairs_sorted_by_Fst_value)
+
+#file name for image:
+pdf(file = "real_data_pairwise_Fst_color_by_comparison_species_Fst_order_5_16_17.pdf", width = 12, height = 5)
+
+ggplot() + 
+  geom_point(data=sorted_by_Fst.df, mapping=aes(x = sorted_by_Fst.df$Pair, y=sorted_by_Fst.df$Fst,  color = sorted_by_Fst.df$SpeciesComparison), size=3 )+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  ggtitle("Fst values for all pairwise comparisons between 15 sites: ordered by Fst")+
+  xlab("Pairwise comparisons")+
+  ylab("Fst")+
+  theme(legend.title=element_blank())+
+  theme(plot.title = element_text(hjust = 0.5))+
+  theme(legend.position="top")+
+  scale_colour_manual(values=c("green4", "royalblue", "darkorchid","#DC143C", "#FF9000" ))
+```
+
+## Reorder according to species comparison, keeping same color scheme by species comparison
+```{r}
+#make a copy  of the data frame sorted by species comparison.
+sorted_by_species_comparison.df <- fst.df[order(fst.df$SpeciesComparison, fst.df$Fst),]
+
+#see what it looks like:
+print(sorted_by_species_comparison.df$Pair) #in an interesting order.
+
+#change levels to match order in new sort.
+sorted_by_species_comparison.df$Pair <- factor(sorted_by_species_comparison.df$Pair, levels = sorted_by_species_comparison.df$Pair)
+
+
+#file name for image:
+pdf(file = "real_data_pairwise_Fst_color_by_comparison_species_species_comparison_then_fst_order_5_16_17.pdf", width = 12, height = 5)
+
+ggplot() + 
+  geom_point(data=sorted_by_species_comparison.df, mapping=aes(x = sorted_by_species_comparison.df$Pair, y=sorted_by_species_comparison.df$Fst,  color = sorted_by_species_comparison.df$SpeciesComparison), size=3 )+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  ggtitle("Fst values for all pairwise comparisons between 15 sites: ordered by species comparison and Fst")+
+  xlab("Pairwise comparisons")+
+  ylab("Fst")+
+  theme(legend.title=element_blank())+
+  theme(plot.title = element_text(hjust = 0.5))+
+  theme(legend.position="top")+
+  scale_colour_manual(values=c("green4", "royalblue", "darkorchid","#DC143C", "#FF9000" ))
+```
+
+
+
+#others
+add all parts of results to dataframe. 
+alpha p value
+plot just real values with color scheme, add element on p value (alpha)
+sort by real value: get mean value with names, sort, change factor order. 
+Plot Fsts from real data in same color scheme/styles.
+Also: Sort by species comparison, then by value.
+Also: Sort by value, color by within or between species.
+
+Color by same or not:
+fill = melted$samenot
+
+Color by county compare language instead of species comparison
+
+Could order or color by physical distance. 
+
+5 categories: species comparisons with means, sd, ranges, real data plotted.
+```{r}
+
+ggplot(fst.df, aes(fst.df$SpeciesComparison, fst.df$Fst)) +
+  geom_boxplot(outlier.colour = NA) + 
+  geom_point(position = position_jitter(width = 0.2), mapping = aes(color = fst.df$SpeciesComparison)) +
+  scale_colour_manual(values=c("green4", "royalblue", "darkorchid","#DC143C", "#FF9000" ))+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  ggtitle("Fst values for all pairwise comparisons between 15 sites\nsorted by species comparison\n")+
+  xlab("")+
+  ylab("Fst")+
+  theme(legend.title=element_blank())+
+  theme(plot.title = element_text(hjust = 0.5))
+
+ggsave("real_data_pairwise_Fst_by_comparison_species_species_boxplot_5_16_17.pdf", width = 9, height = 6, units = "in")
+
+```
+
+

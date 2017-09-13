@@ -1,0 +1,594 @@
+---
+title: "Examining_results_of_strataG_for_1000X_bootstraps_by site_Fst_calcs_only"
+author: "Jessie Berta-Thompson"
+date: "May 8, 2017"
+output: html_document
+---
+
+
+*************************************************************************************
+## Set up
+Clear history and make sure you're in the right working directory for shorter file writes. 
+load in strataG results.
+```{r}
+rm(list=ls())
+print("Where are we? Where will new files without specified full path be created?")
+getwd()
+
+#Get results file of interest
+load("1000_bootstrapped_popgen_calcs_match_sample_size_by_location_onlyFst_pairwise_5_5_17.RData")
+
+#load in results for straight calculations (not bootstrapped) too.
+load("full_data_strataG_results_5_4_17.RData")
+
+```
+
+Look at results structure to understand how to access things
+```{r}
+print("how big is the saved results object and what is it?")
+print(length(testresults))
+print(data.class(testresults))
+#list of 1000 replicate results.
+
+print("how big is one element of results list?")
+print(length(testresults[1]))
+print(length(testresults[[1]])) #have to index with double brackets.
+
+#What's in each replicate's sublist?
+print(length(testresults[[1]][[1]])) #also benefits from double bracketting.
+print(length(testresults[[1]][[2]]))
+
+print(testresults[[1]][[1]]) #strataG overall test result
+print(testresults[[1]][[2]]) #strataG pairwise Fst result
+
+#Results for one replicate dataset
+print(testresults[[1]][[2]]$result$pair.label) #list of labels for pairwise comparisons
+print(testresults[[1]][[2]]$result$Fst) #Fst values for pairwise comparisons between sites
+print(testresults[[1]][[2]]$result$Fst.p.val) #p values for permutation test of Fst values (diff from Fst = 0, panmictic)
+
+#how many pairwise comparisons were there for 15 populations?
+print(length(testresults[[1]][[2]]$result$Fst))
+#105.
+
+#Order same for all?
+print(testresults[[1]][[2]]$result$pair.label)
+print(testresults[[5]][[2]]$result$pair.label)
+print(testresults[[736]][[2]]$result$pair.label)
+print(testresults[[820]][[2]]$result$pair.label)
+print(testresults[[999]][[2]]$result$pair.label)
+
+testresults[[820]][[2]]$result$pair.label == testresults[[999]][[2]]$result$pair.label
+
+
+
+```
+
+*************************************************************************************
+## Parse test results object to get FST for 105 pairwise comparisons
+```{r}
+nboot <- length(testresults)
+ncompare <- length(testresults[[1]][[2]]$result$Fst)
+print(sprintf("This dataset contains %s bootstrap replicates, each with %s pairwise comparisons between sites.", nboot, ncompare))
+
+#Order same for all, just grab that once.
+labels <- testresults[[1]][[2]]$result$pair.label
+
+#Grab Fst values in list of lists: loop over replicates
+list_of_vectors <- lapply(1:nboot, function(n) {
+  #grab vector of Fst results for 105 comparisons.
+  fsts105 <- testresults[[n]][[2]]$result$Fst
+  return(fsts105)
+})
+
+#turn that into a dataframe
+fsts.df <- do.call("rbind", list_of_vectors)
+print(data.class(fsts.df))
+print(dim(fsts.df))
+#rows are replicates, columns are comparisons.
+colnames(fsts.df) <- labels #label columns with pairwise comparisons
+print(fsts.df[1:10,1:5]) 
+rownames(fsts.df) <- c(1:1000)
+print(fsts.df[1:10,1:5]) 
+
+colMeans(fsts.df)
+means <- apply(fsts.df, 2, mean)
+standarddeviations <- apply(fsts.df, 2, sd)
+```
+Quick version, warm up
+```{r}
+# Violin Plots
+#install.packages('vioplot')
+library(vioplot)
+#jpeg( "violin_1000xbootstraps_pairwiseFst_by_species.jpg", width = 600, height = 600 )
+pdf( "violin_1000xbootstraps_pairwiseFst_by_location.pdf", width = 12, height = 5 )
+
+vioplot(fsts.df[,1],fsts.df[,2],fsts.df[,3],fsts.df[,4],fsts.df[,5], names=labels[1:5], 
+   col="purple", ylim = c(0, 1.0))
+
+title(main="1000x bootstrapped Fst values pairwise by site ", ylab="Fst")
+
+```
+
+Work on reformatting for ggplot (melted data, with all the extra info that we want)
+```{r}
+library(reshape2)
+melted <- reshape2::melt(fsts.df, value.name = 'Fst', varnames = c('Replicate', 'Comparison'))
+#print(data.class(melted))
+#print(dim(melted))
+#print(melted[1:5,])
+
+list_of_comparisons <- as.character(melted$Comparison)
+#data.class(list_of_comparisons)
+#length(list_of_comparisons)
+
+first_thing<- unlist(lapply(list_of_comparisons, function(compstring) {
+  halves <- strsplit(compstring, "v. ")
+  messy_first <- halves[[1]][[1]]
+  tidying <- strsplit(messy_first, " ")
+  tidied <- tidying[[1]][[1]][[1]]
+}))
+
+second_thing<- unlist(lapply(list_of_comparisons, function(compstring) {
+  halves <- strsplit(compstring, "v. ")
+  messy_second <- halves[[1]][[2]]
+  tidying <- strsplit(messy_second, " ")
+  tidied <- tidying[[1]][[1]][[1]]
+}))
+
+print(first_thing[1:5])
+
+melted$Site1 <- first_thing
+melted$Site2 <- second_thing
+print(melted[1:5,])
+
+
+
+
+scullyi <- as.character(c("HN", "HS", "F"))
+formosula <- as.character(c("CG", "D", "P","RN", "WS", "WA", "B", "V", "R", "AN", "AS"))
+gina_glenneae <- as.character(c("T"))
+
+
+sitelist1 <- as.character(melted$Site1)
+species1 <- unlist(lapply(sitelist1, function(site) {
+  if (site %in% scullyi) {
+    answer <- "scullyi"
+  }
+  else if (site %in% formosula) {
+    answer <- "formosula"
+  }
+  else if (site %in% gina_glenneae) {
+    answer <- "gina-glenneae"
+  }
+  return(answer)
+}))
+
+print(length(species1))
+print(data.class(species1))
+print(species1[1:5])
+
+sitelist2 <- as.character(melted$Site2)
+species2 <- unlist(lapply(sitelist2, function(site) {
+  if (site %in% scullyi) {
+    answer <- "scullyi"
+  }
+  else if (site %in% formosula) {
+    answer <- "formosula"
+  }
+  else if (site %in% gina_glenneae) {
+    answer <- "gina-glenneae"
+  }
+  return(answer)
+}))
+
+print(length(species2))
+print(data.class(species2))
+print(species2[1990:2005])
+
+melted$Species1 <- species1
+
+melted$Species2 <- species2
+
+
+print(melted[1995:2005,])
+
+
+
+```
+
+#County another way to think about these
+formosula  = Jackson
+gina-glenneae = Grand
+scullyi = Larimer
+
+other ways of slicing data 
+
+```{r}
+
+same_or_mixed <- unlist(lapply(1:length(melted$Species1), function(i) {
+  if ( melted$Species1[i] == melted$Species2[i] ) {
+    result <- "same county"
+  }
+  else {
+    result <- "different county"
+  }
+  return(result)
+}))
+
+species_pair <- unlist(lapply(1:length(melted$Species1), function(i) {
+  pair <- paste(melted$Species1[i], "vs.", melted$Species2[i]) 
+}))
+
+melted$samenot <- factor(same_or_mixed)
+melted$county_compare <- factor(species_pair, levels = c("formosula vs. gina-glenneae", "formosula vs. formosula", "scullyi vs. formosula", "scullyi vs. scullyi", "scullyi vs. gina-glenneae"))
+
+        
+  
+
+
+```
+
+
+
+Make a plot! 
+```{r}
+library(ggplot2)
+pdf(file = "1000XbootstrappedFstbysite_violin_color_by_county_same_or_diff.pdf", width = 12, height = 5)
+ggplot(melted, aes(x = melted$Comparison, y = melted$Fst, fill = melted$samenot)) + 
+  geom_violin() +
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  ggtitle("1000x Bootstrapped Fst values for all pairwise comparisons between 15 sites")+
+  xlab("Pairwise comparisons")+
+  ylab("Fst")+
+  theme(legend.title=element_blank())+
+  theme(plot.title = element_text(hjust = 0.5))+
+  theme(legend.position="top")
+```
+
+Make a plot! color by species pair
+```{r}
+library(ggplot2)
+pdf(file = "1000XbootstrappedFstbysite_violin_color_by_county_comparison.pdf", width = 12, height = 5)
+ggplot(melted, aes(x = melted$Comparison, y = melted$Fst, fill = melted$county_compare)) + 
+  geom_violin() +
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  ggtitle("1000x Bootstrapped Fst values for all pairwise comparisons between 15 sites")+
+  xlab("Pairwise comparisons")+
+  ylab("Fst")+
+  theme(legend.title=element_blank())+
+  theme(plot.title = element_text(hjust = 0.5))+
+  theme(legend.position="top")+
+  scale_fill_manual(values=c("green4", "royalblue", "darkorchid","#DC143C", "#FF6000" ))
+```
+
+Make a plot! color by species pair
+sort by species pair
+```{r}
+library(ggplot2)
+sorted <- melted[order(melted$county_compare),]
+head(sorted)
+shorter<-unique(sorted$Comparison)
+data.class(shorter)
+shorter <- as.character(shorter)
+sorted$Comparison <- factor(sorted$Comparison, levels = shorter)
+
+
+
+pdf(file = "1000XbootstrappedFstbysite_violin_color_by_county_comparison_sorted_by_pair.pdf", width = 12, height = 5)
+ggplot(sorted, aes(x = sorted$Comparison, y = sorted$Fst, fill = sorted$county_compare)) + 
+  geom_violin() +
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  ggtitle("1000x Bootstrapped Fst values for all pairwise comparisons between 15 sites")+
+  xlab("Pairwise comparisons")+
+  ylab("Fst")+
+  theme(legend.title=element_blank())+
+  theme(plot.title = element_text(hjust = 0.5))+
+  theme(legend.position="top")+
+  scale_fill_manual(values=c("green4", "royalblue", "darkorchid","#DC143C", "#FF6000" ))
+```
+
+
+
+
+
+sort by mean value: get mean value with names, sort, change factor order. 
+```{r}
+means <- apply(fsts.df, 2, mean)
+sorted_means <- sort(means)
+sorted_names <- names(sorted_means)
+
+#change factor levels order
+sorted_by_mean <- sorted
+sorted_by_mean$Comparison <- factor(sorted_by_mean$Comparison, levels = sorted_names)
+
+
+pdf(file = "1000XbootstrappedFstbysite_violin_color_by_county_comparison_sorted_by_value.pdf", width = 12, height = 5)
+ggplot(sorted_by_mean, aes(x = sorted_by_mean$Comparison, y = sorted_by_mean$Fst, fill = sorted_by_mean$county_compare)) + 
+  geom_violin() +
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  ggtitle("1000x Bootstrapped Fst values for all pairwise comparisons between 15 sites")+
+  xlab("Pairwise comparisons")+
+  ylab("Fst")+
+  theme(legend.title=element_blank())+
+  theme(plot.title = element_text(hjust = 0.5))+
+  theme(legend.position="top")+
+  scale_fill_manual(values=c("green4", "royalblue", "darkorchid","#DC143C", "#FF6000" ))
+```
+
+
+sort by mean value: add actual calculations (not bootstrap) 
+```{r}
+
+#extract from their datastructure
+fst <- as.numeric(real_by_loc_pT$result$Fst)
+fst_names <- real_by_loc_pT$result$pair.label
+
+realfst.df <- data.frame(Pair=fst_names, Fst = fst)
+head(realfst.df)
+
+long_real <- unlist(lapply(1:length(sorted_by_mean$Comparison), function(i) {
+  comp <- sorted_by_mean$Comparison[i]
+  #print(comp)
+  index <- which(realfst.df$Pair == comp)
+  #print(realfst.df$Pair[index])
+  #print(realfst.df$Fst[index])
+  return(realfst.df$Fst[index])
+}))
+
+sorted_by_mean$actual_Fst <- long_real
+print(sorted_by_mean$actual_Fst[1:5])
+data.class(sorted_by_mean$actual_Fst)
+
+```
+```{r}
+pdf(file = "1000XbootstrappedFstbysite_violin_color_by_county_comparison_sorted_by_value_with_real.pdf", width = 12, height = 5)
+
+ggplot() + 
+  geom_violin(data=sorted_by_mean, mapping=aes(x = sorted_by_mean$Comparison, y = sorted_by_mean$Fst, fill = sorted_by_mean$county_compare)) +
+  geom_point(data=sorted_by_mean, mapping=aes(x = sorted_by_mean$Comparison, y=sorted_by_mean$actual_Fst))+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  ggtitle("1000x Bootstrapped Fst values for all pairwise comparisons between 15 sites")+
+  xlab("Pairwise comparisons")+
+  ylab("Fst")+
+  theme(legend.title=element_blank())+
+  theme(plot.title = element_text(hjust = 0.5))+
+  theme(legend.position="top")+
+  scale_fill_manual(values=c("green4", "royalblue", "darkorchid","#DC143C", "#FF6000" ))
+```
+
+
+
+
+
+
+
+
+Make a plot! color by species pair
+sort by species pair
+add real data
+```{r}
+long_real2 <- unlist(lapply(1:length(sorted$Comparison), function(i) {
+  comp <- sorted$Comparison[i]
+  #print(comp)
+  index <- which(realfst.df$Pair == comp)
+  #print(realfst.df$Pair[index])
+  #print(realfst.df$Fst[index])
+  return(realfst.df$Fst[index])
+}))
+
+sorted$actual_Fst <- long_real2
+print(sorted$actual_Fst[1:5])
+```
+
+
+```{r}
+pdf(file = "1000XbootstrappedFstbysite_violin_color_by_county_comparison_sorted_by_pair_with_real.pdf", width = 12, height = 5)
+
+ggplot() + 
+  geom_violin(data=sorted, mapping=aes(x = sorted$Comparison, y = sorted$Fst, fill = sorted$county_compare)) +
+  geom_point(data=sorted, mapping=aes(x = sorted$Comparison, y=sorted$actual_Fst))+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  ggtitle("1000x Bootstrapped Fst values for all pairwise comparisons between 15 sites")+
+  xlab("Pairwise comparisons")+
+  ylab("Fst")+
+  theme(legend.title=element_blank())+
+  theme(plot.title = element_text(hjust = 0.5))+
+  theme(legend.position="top")+
+  scale_fill_manual(values=c("green4", "royalblue", "darkorchid","#DC143C", "#FF6000" ))
+```
+
+
+
+
+
+
+
+
+
+
+**************************************************************************************************************************
+## Plot just real data using schemes developed here
+
+# Create a dataframe 
+with real data, melt it, and build up collection of plot-relevant factors, with meaningfully ordered and sorted levels.
+
+```{r}
+#Extract data and labels from strataG result object
+fst <- as.numeric(real_by_loc_pT$result$Fst)
+pair_label <- real_by_loc_pT$result$pair.label
+
+#Bundle those into a dataframe
+fst.df <- data.frame(Pair=pair_label, Fst = fst)
+head(fst.df)
+
+
+
+
+#Extract the two sites from the label as separate quantities and add to dataframe as additional factors
+first_site<- unlist(lapply(pair_label, function(compstring) {
+  halves <- strsplit(compstring, "v. ")
+  messy_first <- halves[[1]][[1]]
+  tidying <- strsplit(messy_first, " ")
+  tidied <- tidying[[1]][[1]][[1]]
+}))
+
+second_site<- unlist(lapply(pair_label, function(compstring) {
+  halves <- strsplit(compstring, "v. ")
+  messy_second <- halves[[1]][[2]]
+  tidying <- strsplit(messy_second, " ")
+  tidied <- tidying[[1]][[1]][[1]]
+}))
+
+fst.df$Site1 <- factor(first_site)
+fst.df$Site2 <- factor(second_site)
+
+
+# Add Species designations for first and second of comparison pairs.
+scullyi <- as.character(c("HN", "HS", "F"))
+formosula <- as.character(c("CG", "D", "P","RN", "WS", "WA", "B", "V", "R", "AN", "AS"))
+gina_glenneae <- as.character(c("T"))
+
+
+species1 <- unlist(lapply(first_site, function(site) {
+  if (site %in% scullyi) {
+    answer <- "scullyi"
+  }
+  else if (site %in% formosula) {
+    answer <- "formosula"
+  }
+  else if (site %in% gina_glenneae) {
+    answer <- "gina-glenneae"
+  }
+  return(answer)
+}))
+
+species2 <- unlist(lapply(second_site, function(site) {
+  if (site %in% scullyi) {
+    answer <- "scullyi"
+  }
+  else if (site %in% formosula) {
+    answer <- "formosula"
+  }
+  else if (site %in% gina_glenneae) {
+    answer <- "gina-glenneae"
+  }
+  return(answer)
+}))
+
+fst.df$Species1 <- factor(species1)
+fst.df$Species2 <- factor(species2)
+
+#Add Counties (equivalent to species; but perhaps we'd want to label things geographically)
+county1 <- unlist(lapply(species1, function(sp) {
+  if (sp == "scullyi") {
+    co <- "Larimer"
+  }
+  else if (sp == "formosula") {
+    co <- "Jackson"
+  }
+  else if (sp == "gina-glenneae") {
+    co <- "Grand"
+  }
+  else {
+    print("uh-oh. mapping fail.")
+  }
+}))
+
+county2 <- unlist(lapply(species2, function(sp) {
+  if (sp == "scullyi") {
+    co <- "Larimer"
+  }
+  else if (sp == "formosula") {
+    co <- "Jackson"
+  }
+  else if (sp == "gina-glenneae") {
+    co <- "Grand"
+  }
+  else {
+    print("uh-oh. mapping fail.")
+  }
+}))
+
+fst.df$County1 <- factor(county1)
+fst.df$County2 <- factor(county2)
+
+
+#Add combinations of species and counties
+species_pair <- unlist(lapply(1:length(species1), function(i) {
+  pair <- paste(species1[i], "vs.", species2[i]) 
+}))
+
+fst.df$SpeciesComparison <- factor(species_pair, levels = c("formosula vs. gina-glenneae", "formosula vs. formosula", "scullyi vs. formosula", "scullyi vs. scullyi", "scullyi vs. gina-glenneae"))
+
+counties_pair <- unlist(lapply(1:length(species1), function(i) {
+  pair <- paste(county1[i], "vs.", county2[i]) 
+}))
+
+fst.df$CountyComparison <- factor(counties_pair, levels = c("Jackson vs. Grand","Jackson vs. Jackson","Larimer vs. Jackson", "Larimer vs. Larimer", "Larimer vs. Grand"))
+
+
+melted$samenot <- factor(same_or_mixed)
+melted$county_compare <- factor(species_pair, levels = c("formosula vs. gina-glenneae", "formosula vs. formosula", "scullyi vs. formosula", "scullyi vs. scullyi", "scullyi vs. gina-glenneae"))
+
+        
+#Add one more, sorting by whether pair in a comparison is from the same county/species or different.
+same_or_mixed <- unlist(lapply(1:length(species1), function(i) {
+  if ( species1[i] == species2[i] ) {
+    result <- "same species" #if you prefer county/species language, change these strings
+  }
+  else {
+    result <- "different species"
+  }
+  return(result)
+}))
+
+fst.df$SameOrDiff <- factor(same_or_mixed)
+
+print(fst.df)
+```
+
+```{r}
+#So organized! Time to plot! In different orders! Other stats too, not just Fst - functionitize and repeat when done. 
+library(ggplot2)
+pdf(file = "real_data_pairwise_Fst_by_comparison_species_5_9_17.pdf", width = 12, height = 5)
+
+ggplot() + 
+  geom_point(data=fst.df, mapping=aes(x = fst.df$Pair, y=fst.df$Fst,  color = fst.df$SpeciesComparison), size=3 )+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  ggtitle("Fst values for all pairwise comparisons between 15 sites")+
+  xlab("Pairwise comparisons")+
+  ylab("Fst")+
+  theme(legend.title=element_blank())+
+  theme(plot.title = element_text(hjust = 0.5))+
+  theme(legend.position="top")+
+  scale_colour_manual(values=c("green4", "royalblue", "darkorchid","#DC143C", "#FF6000" ))
+  
+
+```
+
+
+
+
+
+
+
+
+
+#others
+plot boots sorted by real values
+plot just real values with color scheme, add element on p value (alpha)
+sort by real value: get mean value with names, sort, change factor order. 
+Plot Fsts from real data in same color scheme/styles.
+Also: Sort by species comparison, then by value.
+Also: Sort by value, color by within or between species.
+
+
+
+

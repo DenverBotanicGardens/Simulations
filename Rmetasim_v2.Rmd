@@ -1,0 +1,572 @@
+---
+title: "Rmetasim_v2"
+author: "Michelle DePrenger-Levin & Jessie"
+date: "January 11, 2017"
+output: html_document
+---
+
+Ctrl + Alt + c to run chunk 
+
+# To start, clear environment and load rmetasim
+```{r}
+rm(list =ls())
+library(rmetasim)
+library(dplyr)
+```
+
+
+# Landscape Building Part 1. Fill in parameters with integer values. 
+# first, choose values for these parameters
+```{r}
+# 3 Phacelia populations [1] "the number of different habitats or subpopulations within the landscape" 
+habitats <- 3
+# 3 life stages: seedlings, still juvenile year-old rosettes, flowering [1]     "the number of stages in the life cycle of the organism; also the size of the S, R, and M matricies for local demography
+stages <- 3 
+# 12 microsatellite loci used in genotyping study [0] "the number of different loci currently implemented for the simulation"
+locusnum <- 12
+# one migration scenario over time [0] "the number of different migration scenerios to occur during the simulation"
+numepochs <- 0   
+# start at generation 0 [0] "the current generation the simulation has reached" 
+currentgen <- 0   
+# start at epoch 0 [0] "the current epoch the simulation has reached"
+currentepoch <- 0  
+# run for at most 100,000 generations; in practice this is set later: .simulate(numit)    "the total number of generations to simulate"
+totalgens <- 100000  
+# only one within-population demography (life cycle) for all populations [0] "the number of within population demographies"
+numdemos <- 0  
+# overall landscape limit set to be bigger than populations expected to go [2e+05] "the maximum number of individuals that can exist in the simulation"
+maxlandsize <- 1e+05      
+```
+
+
+#start by making an empty landscape object
+```{r}
+rland <- landscape.new.empty()
+```
+
+#then run the integer-parameter-populating function
+```{r}
+rland <- landscape.new.intparam(rland, h=habitats, s=stages, cg=currentgen, ce=currentepoch, totgen=totalgens, maxland=maxlandsize)
+```
+
+# a few parameters don't have assigned variables to feed function but belong to this part of the landscape - easiest to fill in individually after.
+```{r}
+rland$intparam$locusnum <- locusnum
+rland$intparam$numepochs <- numepochs
+rland$intparam$numdemos <- numdemos
+```
+
+#if desired, inspect results # print(rland$intparam)
+```{r}
+cat(sprintf("The integer parameters have been set as follows:\n Number of habitats (populations) - %s\n Number of life stages - %s\n Number of loci - %s\n Number of epochs -  %s\n Current generation - %s\n Current epoch - %s\n Total generations - %s\n Number of within-population demographies - %s\n Maximum number of individuals in the simulation - %s\n ", 
+            rland$intparam$habitats, rland$intparam$stages, rland$intparam$locusnum,
+            rland$intparam$numepochs, rland$intparam$currentgen, rland$intparam$currentepoch,
+            rland$intparam$totalgens, rland$intparam$numdemos, rland$intparam$maxlandsize))
+```
+
+
+# Landscape Building Part 2: Set on/off values for parameters that are switches
+
+# function landscape.new.switchparam(rland, ...) sets boolean values for parameters that are switches. 4 values of 1 or 0, in order, set parameters.
+```{r}
+randepoch <- 0 # only one epoch - no need for random transitions [0] "1=choose the next epoch randomly using their individual probabilities, 0=choose the next epoch according to their ordering"     
+randdemo <- 0 # only one local demography across the board - no need for random assignments [0] "1=assign demographies at random, 0=assign demographies in order"                                                                
+multp <- 1 # multiple paternity on, females can be pollinated by more than one male plant [1] "1=multiple paternity, 0=entire families from a single mating"                                                                   
+densdepdemo <- 0 # a single demography will apply regardless of density [0] "a flag to turn density-dependent population regulation on and off"                                
+```
+
+
+#run the switch parameter-populating function
+```{r}
+rland <- landscape.new.switchparam(rland, randepoch, randdemo, multp, densdepdemo)
+```
+
+#if desired, inspect results #print(rland$switchparam)
+```{r}
+cat(sprintf("the switches are set as follows (1=on, 0=off):\n random epoch - %s\n random demography - %s\n multiple paternity - %s\n density dependent demographies - %s", 
+            rland$switchparam$randepoch, rland$switchparam$randdemo,rland$switchparam$multp,
+            rland$switchparam$densdepdemo))
+```
+
+
+
+# Landscape Building Part 3: fill in parameters with float values
+
+# there's only one parameter with a simple float value - the selfing rate: to set, rland <- landscape.new.floatparam(rland, float)
+# We don't know selfing rate; Phacelia attracts pollinators (looking for outside pollen) 
+#but doesn't have morphology to absolutely prevent selfing (more research required + run various  to assess impact)
+```{r}
+selfing <- 0.5      # guess with some selfing, some outside pollen      [0] "This value is the selfing rate of the species (between 0 and 1 inclusive) assuming a mixed mating model where selfing occurs S proportion of the time and random mating occurs 1-S proportion of the time"
+```
+
+#execute command to set selfing rate
+```{r}
+rland <- landscape.new.floatparam(rland, selfing)
+```
+
+# if desired inspect results #print(rland$floatparam)
+```{r}
+print(sprintf("the selfing rate is now set to %s", rland$floatparam$selfing))
+```
+
+## Landscape Building Part 4: (a) local demographics (life stages) and (b) between-population demographics (migration)
+
+# (a) The local demography - within-population life cycle dynamics
+# Local demography is composed of survival, reproduction and male contribution matrices, which are combined to advance the population each generation
+# There can be a different one for each subpopulation (chosen at random from the set or assigned in order)
+# Local demography S, R, M matrices must be square n x n, where n is the number of stages in each population  
+
+# Explanation of demography choice for a slightly complicated biennial
+# stage 1 = seedlings, new rosettes
+# stage 2 = juvenile rosettes created from last year's seedlings and waiting until the next spring to flower (an extra non reproductive year)
+# stage 3 = flowering plants that reproduce then die, created from last years seedlings and year old juvenile rosettes.
+# no stage is allowed to linger - individuals either move to another stage or die every year.
+# values set to give a stable population that is 90% seedlings, 1% juveniles, 9% flowering plants
+
+#Survival matrix 
+#       from   
+#       1  2  3
+#to   1
+#     2        
+#     3        
+```{r}
+localS <- matrix(c(              0,     0,   0,
+                    0.011111111111,     0,   0,
+                             0.091,  0.81,   0) , byrow = TRUE, nrow = 3)
+```
+
+# reading down each column (transitions go from column to row)
+# No seedlings remain seedlings, ~1% become juveniles, ~9% become flowering plants next year [~90% die]
+# No juveniles become seedlings, no juveniles remain juveniles, 75% of juveniles survive to become flowering plants next year [25% die]
+# No mature flowering plants become seedlings or juveniles and none survive another year [100% die]
+
+
+#Reproduction - Maternal production of offspring
+```{r}
+localR <- matrix(c(  0,  0,  10,
+                     0,  0,  0,
+                     0,  0,  0) , byrow = TRUE, nrow = 3)
+```
+#this means each flowering plant contributes 10 seedlings to the next generation, on average (drawn from poisson about 10)
+
+
+# Male contribution
+# Probability that pollen comes from a particular stage class.
+# all pollen comes from flowering plants
+# ****** Question ******** 
+# should this value be 1 or 1-contents of migration matrices? how are these matrices combined? 100% percent from flowering plants, but e.g. 90% from within population, 10% from other populations.
+```{r}
+localM <- matrix(c(  0,  0,  0,
+                     0,  0,  0,
+                     0,  0,  1) , byrow = TRUE, nrow = 3)
+
+```
+
+# set these matrices into the landscape
+```{r}
+rland <- landscape.new.local.demo(rland,localS,localR,localM)
+```
+
+# repeating this command with more matrices puts more demographies into the localdem list (e.g. one for each population)
+
+# see what this made
+```{r}
+print(rland$demography$localdem)
+```
+
+# Construct these matrices (m for migration)
+# no plants travel (survival matrices all zeroes)
+```{r}
+epochS <- matrix(c(rep(0,81)), nrow=9)
+epochR <- matrix(c(rep(0,81)), nrow=9)
+```
+
+```{r}
+epochM <- matrix(c(   0,  0,    0,     0,  0,    0,    0,  0,    0,
+                  0,  0,    0,     0,  0,    0,    0,  0,    0,
+                  0,  0,    0,     0,  0, 0.05,    0,  0, 0.05,
+                  
+                  0,  0,    0,     0,  0,    0,    0,  0,    0,
+                  0,  0,    0,     0,  0,    0,    0,  0,    0,
+                  0,  0, 0.05,     0,  0,    0,    0,  0, 0.05,
+                  
+                  0,  0,    0,     0,  0,    0,    0,  0,    0,
+                  0,  0,    0,     0,  0,    0,    0,  0,    0,
+                  0,  0, 0.05,     0,  0, 0.05,    0,  0,    0), byrow=TRUE, nrow=9)
+```
+
+#take a look
+```{r}
+print(epochS)
+print(epochR)
+print(epochM)
+```
+
+#After the matrices, the epoch set-up command also accepts other arguments about demography
+```{r}
+RndChooseProb <- 1            
+# random flag not turned on, unimportant, leave default           [1]                 "the probability of randomly choosing this epoch if rland$switchparam$randepoch==1"
+StartGen <- 0                
+# this epoch will staert at generation 0                          [0]                 "the generation this epoch begins if rland$switchparam$randepoch==0"
+Extinct <- c(0,0,0)           
+# no extinction in model (could happen if populations shrink)     [c(0,0,0)]          "a vector of values giving the extinction probability for each subpopulation"
+Carry <- c(1e+4,1e+4,1e+4)    
+# carrying capacities set to higher than expected so not limiting [c(1000,1000,1000)] "a vector of values denoting the maximum individuals for each subpopulation"
+
+Localprob <- 1                
+# the probability of choosing the one local demography is 1       [1]                 "the probability of choosing this local demography if rland$switchparam$randdemo==1"
+```
+
+#populate an epoch with parameters
+```{r}
+rland <- landscape.new.epoch(rland, S=epochS, R=epochR, M=epochM, epochprob = RndChooseProb, startgen = StartGen, extinct = Extinct, carry = Carry, localprob = Localprob)
+
+```
+#repeat command to have more epochs
+
+#take a look
+```{r}
+rland$demography$epochs
+```
+
+#5. Loci
+#create lists of loci and alleles
+#run default rland <- landscape.new.locus(rland)
+#locus properties fed into landscape.new.locus
+```{r}
+locustype <- 1          
+# strict stepwise model for mutation allele = integer, +-1 each mutation  [0? 251?] 
+# 0 = infinite alleles (alleles represented by integers, every mutation creates a new allele, no back mutation), 
+# 1 = strict step wise (alleles represented by integers, increase or decrease by 1 every mutation - like differences in length for simple sequence repeats - used for microsatellites with repeat regions, co-dominant, high mutation rates), 
+# 2 = DNA base substitution (no mention of model yet, probably JC)
+ploidy <- 2             
+# diploid                                                                 [1]       "This can be 1 for haploid and 2 for diploid"
+mutationrate <- 0.0001  
+# per-allele mutation rate 0.0001                                         [0]       "the per-allele mutation rate (not per site) range [0 1] (average # of mutations per allele per generation)"
+transmission <- 0       
+# biparental inheritance                                                  [1]       "The mode of inheritance. This can be 0 for biparental or 1 for maternal."
+```
+
+# Each locus also has an object called alleles, which is a list of alleles for the locus, each of which is a list with more information     
+# alleles defaults list of 2 alleles, aindex 1 and 2, birth=0, prop=0.5, state 1 and 2 respectively
+
+# allele properties at this locus are also fed into landscape.new.locus to populate initial allele frequencies
+# allelesize <- 50  # no allele size used for strict stepwise model [50] for type==2 DNA base substitution/variable length sequence state, enter custom DNA length here (one for locus, not per allele, so not quite what we want for microsatellite-like evolution)      
+```{r}
+numalleles <- 30  # allow there to be 100 possible states of the microsatellite at this locus [2] number of alleles at this locus
+frequencylist <- c(rep(0,numalleles)) 
+frequencylist[12] <- 0.125
+frequencylist[13]<- 0.125
+frequencylist[14]<- 0.125
+frequencylist[15]<- 0.125
+frequencylist[16] <- 0.125
+frequencylist[17] <- 0.125
+frequencylist[18] <- 0.125
+frequencylist[19] <- 0.125
+```
+# only populate 8 alleles to start (then mutation free to explore the rest) [c(0.5,0.5)] Allele frequencies at locus (Same length as number of alleles)
+# might be fun to make this more random.
+```{r}
+print(frequencylist)
+```
+
+# statelist <- # the starting alleles themselves - no need to enter, they are generated by program (although you could) for type 0 or 1 this fills in integers [1:numalleles]; for type 2, generates DNA of length allelesize sampling ACTG from uniform distribution
+
+
+# landscape.new.locus This function populates the loci parameters and makes an the allele list of length numalleles so that each allele gets the following properties:
+# aindex index number of allele
+# birth generation the allele first appeared
+# prop - frequency of this allele (from frequency list)
+# state - an integer for loci of type 0 or 1 (infinite allele or strict stepwise mutation), a string representing DNA sequence for loci type 2 (ACTG)
+# possible entries: rland <- landscape.new.locus(rland, type=locustype, ploidy=ploidy, mutationrate=mutationrate, transmission=transmission, numalleles=numalleles, allelesize=allelesize,frequencies=frequencylist, states=statelist)
+
+
+#If for some reason we wanted to get into allele construction, code to do so (from landscape.new.locus) would look like this
+#rland$loci[[locusnum]]$alleles <- makealleles(type, numalleles, allelesize, frequencies, states)
+
+#we'll probably want several loci every time, already set in previous variable
+```{r}
+print(locusnum)
+```
+
+#implement locus builder function in a loop to make these 12 identical loci to start
+```{r}
+for (l in c(1:locusnum)){
+  print(paste("building locus #",l))
+  rland <- landscape.new.locus(rland, type=locustype, ploidy=ploidy, mutationrate=mutationrate, transmission=transmission, numalleles=numalleles, frequencies=frequencylist)
+}
+```
+
+# don't see what's in there, too big to print. (```{r}print(rland$loci)```)
+
+
+#To create individuals, enter a vector of population sizes, less than size of carrying capacity.
+```{r}
+pop1seedling <- 4500
+pop1juv      <- 50
+pop1mat      <- 450
+
+pop2seedling <- 4500
+pop2juv      <- 50
+pop2mat      <- 450
+
+pop3seedling <- 4500
+pop3juv      <- 50
+pop3mat      <- 450
+
+
+initial_pop_structure = c(pop1seedling, pop1juv, pop1mat, pop2seedling, pop2juv, pop2mat, pop3seedling, pop3juv, pop3mat)
+```
+
+#these 9 categores become known as subpopulations 0-8 in dataset
+```{r}
+rland <- landscape.new.individuals(rland,initial_pop_structure)
+
+print(rland$individuals)
+unique(rland$individuals[,1])
+table(rland$individuals[,1])
+```
+
+new.locus <- . %>% landscape.new.locus(type = locustype, ploidy = ploidy,
+                                       mutationrate = mutationrate, 
+                                       transmission = transmission, 
+                                       numalleles = numalleles)
+
+# Need a new locus created for each
+                                lapply(1:locusnum,fuction(newloc){
+                                  landscape.new.locus(type=locustype, ploidy=ploidy,
+                                                      mutationrate=mutationrate,
+                                                      transmission=transmission, 
+                                                      numalleles=numalleles, 
+                                                      frequencies=frequencylist)
+                                  }) %>%     
+
+
+#function to create an Rland!
+```{r}
+
+
+create.land <- function()
+    {
+### CREATE A LANDSCAPE
+###first set up the matrices for local demographies
+        S <- localS
+        R <- localR
+        M <- localM
+        #and epochs 
+        S.epoch <- epochS
+        R.epoch <- epochR
+        M.epoch <- epochM
+
+        ##now create the landscape
+        landscape.new.empty() %>% 
+            landscape.new.intparam(h=habitats,s=stages, cg=currentgen, ce=currentepoch,
+                                   totgen=totalgens, maxland=maxlandsize) %>% 
+                landscape.new.switchparam(re = randepoch, rd = randdemo, 
+                                          mp = multp, dd =densdepdemo) %>%
+                    landscape.new.floatparam(s = selfing) %>%
+                        landscape.new.local.demo( S, R, M) %>%
+                            landscape.new.epoch(S=epochS, R=epochR, M=epochM, 
+                                                epochprob = RndChooseProb, startgen = StartGen, 
+                                                extinct = Extinct, carry = Carry, 
+                                                localprob = Localprob) %>%
+                                #12 loci
+                                landscape.new.locus(type=locustype, ploidy=ploidy, #1
+                                                      mutationrate=mutationrate,
+                                                      transmission=transmission, 
+                                                      numalleles=numalleles, 
+                                                      frequencies=frequencylist) %>%
+                                landscape.new.locus(type=locustype, ploidy=ploidy, #2
+                                                      mutationrate=mutationrate,
+                                                      transmission=transmission, 
+                                                      numalleles=numalleles, 
+                                                      frequencies=frequencylist) %>%
+                                landscape.new.locus(type=locustype, ploidy=ploidy,
+                                                      mutationrate=mutationrate,
+                                                      transmission=transmission, 
+                                                      numalleles=numalleles, 
+                                                      frequencies=frequencylist) %>%
+                                landscape.new.locus(type=locustype, ploidy=ploidy,
+                                                      mutationrate=mutationrate,
+                                                      transmission=transmission, 
+                                                      numalleles=numalleles, 
+                                                      frequencies=frequencylist) %>% #5
+                                landscape.new.locus(type=locustype, ploidy=ploidy,
+                                                      mutationrate=mutationrate,
+                                                      transmission=transmission, 
+                                                      numalleles=numalleles, 
+                                                      frequencies=frequencylist) %>%
+                                landscape.new.locus(type=locustype, ploidy=ploidy,
+                                                      mutationrate=mutationrate,
+                                                      transmission=transmission, 
+                                                      numalleles=numalleles, 
+                                                      frequencies=frequencylist) %>%
+                                landscape.new.locus(type=locustype, ploidy=ploidy,
+                                                      mutationrate=mutationrate,
+                                                      transmission=transmission, 
+                                                      numalleles=numalleles, 
+                                                      frequencies=frequencylist) %>%
+                                landscape.new.locus(type=locustype, ploidy=ploidy,
+                                                      mutationrate=mutationrate,
+                                                      transmission=transmission, 
+                                                      numalleles=numalleles, 
+                                                      frequencies=frequencylist) %>%
+                                landscape.new.locus(type=locustype, ploidy=ploidy,
+                                                      mutationrate=mutationrate,
+                                                      transmission=transmission, 
+                                                      numalleles=numalleles, 
+                                                      frequencies=frequencylist) %>%
+                                landscape.new.locus(type=locustype, ploidy=ploidy, #10
+                                                      mutationrate=mutationrate,
+                                                      transmission=transmission, 
+                                                      numalleles=numalleles, 
+                                                      frequencies=frequencylist) %>%
+                                landscape.new.locus(type=locustype, ploidy=ploidy,
+                                                      mutationrate=mutationrate,
+                                                      transmission=transmission, 
+                                                      numalleles=numalleles, 
+                                                      frequencies=frequencylist) %>%
+                                landscape.new.locus(type=locustype, ploidy=ploidy,
+                                                      mutationrate=mutationrate,
+                                                      transmission=transmission, 
+                                                      numalleles=numalleles, 
+                                                      frequencies=frequencylist) %>%
+                                
+                                landscape.new.individuals(initial_pop_structure)
+    }
+```
+
+
+#Test creat.land function
+```{r}
+rland <- create.land()
+
+rland$individuals
+
+```
+
+
+
+
+```{r}
+
+# add T0 first, then the list. Save every 10 or so if(x = selected to save){ add to list} and last one max(gen)
+
+
+rep <- 5 #set reps of same run
+
+#Which generations would you like to keep?
+maxgen <- 101 #change as needed
+howmany <- 10 # how many times do you want to keep data
+gens <- floor(seq(1,maxgen, maxgen/howmany))
+
+rland.list <- list(rland$individuals,
+                   lapply(1:maxgen, function(gen){
+                     rland$intparam$currentgen <- gen
+                     rland <- landscape.extinct(rland)
+                     rland <- landscape.survive(rland)
+                     rland <- landscape.reproduce(rland)
+                     rland <- landscape.carry(rland)
+                     rland <- landscape.advance(rland)
+                     rland$individuals
+                     }))
+
+
+```
+
+#number of individuals 
+table of subpopulations
+```{r}
+numind <- sapply(rland.list[[2]], function(x){
+  nrow(x)
+})
+
+plot(1:length(numind), numind)
+
+subpops <- lapply(rland.list[[2]], function(x){
+  table(x[,1])
+})
+
+subpops <- do.call(rbind, subpops)
+head(subpops)
+
+subpops <- data.frame(subpops)
+subpops1<- melt(subpops, id.vars = rownames(subpops), value.name = "SubClass")
+
+ggplot(subpops, aes())
+
+```
+
+
+
+
+
+```{r}
+
+
+for (i in 2:30)#how many decades
+{
+  rland <- landscape.simulate(rland,1)
+#  retval[i,] <- c(rland$intparam$currentgen, nrow(rland$individuals)) 
+  print(sprintf("finished simulating decade %s of 100, generation %s", i-1,rland$intparam$currentgen ))
+  print(unique(rland$individuals[,1]))
+  print(nrow(rland$individuals))
+  print(table(rland$individuals[,1]))
+}
+
+
+
+```
+
+# Population Genetic statistics
+```{r}
+library(adegenet)
+
+rland.df <- as.data.frame(rland.df)
+
+pops <- seq(0,4,2)
+
+alleles <- seq(7,29,2)
+rland.2genind <- sapply(alleles, function(x){
+  paste(rland.df[,x], rland.df[,x+1], sep = "-")
+})
+
+
+rland.df$pop[rland.df$V1 == 0 | rland.df$V1 == 1 ] <- "pop1"
+rland.df$pop[rland.df$V1 == 2 | rland.df$V1 == 3 ] <- "pop2"
+rland.df$pop[rland.df$V1 == 4 | rland.df$V1 == 5 ] <- "pop3"
+
+# following doesn't work yet!
+rland.df$pop <- sapply(pops, function(x){
+  pop <- if(rland.df$V1 == x | rland.df$V1 == x+1){
+    paste("pop",x,sep="")
+  }
+  pop
+})
+
+str(rland.df)
+
+rland.df2genind <- data.frame(rland.df[,c(3,31)], rland.2genind)
+
+library(strataG)
+
+head(rland.df2genind)
+
+rland.genind <- df2genind(rland.df2genind[,-(1:2)], pop = rland.df2genind$pop, type = "codom", sep="-")
+class(rland.genind)
+rland.genind
+
+rland.gtypes <- genind2gtypes(rland.genind)
+
+overallTest(rland.gtypes)
+pairwiseTest(rland.gtypes)
+
+
+
+```
+
+
+
+
+
+

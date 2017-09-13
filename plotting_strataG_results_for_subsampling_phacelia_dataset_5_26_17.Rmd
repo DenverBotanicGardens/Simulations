@@ -1,0 +1,549 @@
+---
+title: "plotting_strataG_results_for_subsampling_phacelia_dataset_5_26_17.Rmd"
+author: "Jessie Berta-Thompson"
+date: "May 26, 2017"
+output: html_document
+---
+picking up where i left off yesterday (plotting_strataG_results_for_subsampling_phacelia_dataset_5_25_17.Rmd)
+analyzing results from Fst calculations from subsampling (without replacement) n = 2 through n = 30 from real phacelia data, 1000 replicate datasets for each n. 
+*************************************************************************************
+## Set up
+Clear history and make sure you're in the right working directory,  locate subsampling results.
+```{r}
+rm(list=ls())
+here <- getwd()
+print(here)
+#then setwd() to where you want to be if wrong.
+#setwd("Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/Subsampling")
+setwd("/Users/jessie/Documents/botanic/subsampling_phacelia/working_on_laptop_5_26_17")
+
+#look for files of interest
+#list.files(here)
+#Grab file names for results 
+result_files <- list.files(here, pattern="_Fst_calcs_subsample_1000x_by_location_5")
+print(sprintf("Found %s subsampling result files", length(result_files)))
+```
+
+##Start some manipulations on file names to organize the files for import
+```{r}
+# Extract n value from file name by splitting string
+nvalues_from_file <- strtoi(unlist(lapply(result_files, function(filename) {
+  strsplit(filename, "n_")[[1]][[1]]
+})))
+
+# Put the file names and the n values associated with them into a dataframe
+inputinforaw <- data.frame(files=result_files, n=nvalues_from_file, stringsAsFactors = FALSE)
+# get indices for dataframe sorted by n values
+sortorder <- order(inputinforaw["n"])
+# make a new dataframe of filenames and ns, this time in order of increasing n
+inputinfosorted <- inputinforaw[sortorder,]
+# that method of sorting left original indices as row names. rename in increasing order. 
+row.names(inputinfosorted) <- c(1:dim(inputinfosorted["n"])[1])
+```
+
+##Load results files
+figure out how to load and store the results - slightly tricky because each file contains a file with one object, and all the files have the same variable name for that object. 
+```{r}
+#Clean up dataframe results to get a list of files in order desired for loading (increasing n)
+simplevector <- as.character(inputinfosorted$files)
+
+#Store analysis results objects from all the files in one list. Lapply over filenames
+list_of_results <- lapply(simplevector, function(filename){
+  print(filename) #progress monitor + order check. 
+  load(filename) #this loads a variable called thousandreps from saved object
+  return(thousandreps) #return that object into the output list of the lapply
+})
+```
+## For comparison, in some cases we may want to overplot results of strataG calculations with full dataset (n = 30 or largest sampled)
+```{r}
+#load in results forstrataG Fst calculations on phacelia microsatellite data.
+load("full_data_strataG_results_5_4_17.RData")
+```
+
+
+## Figure out how to access what the subsampling analysis results created
+```{r}
+#The whole thing is a list of 27 objects (the 27 ns done so far - will be 29)
+print(data.class(list_of_results))
+print(length(list_of_results))
+
+#Each of those items is a list of length 1
+print(data.class(list_of_results[1]))
+print(length(list_of_results[1]))
+
+#Each of those contains a list of 1000 (the 1000 replicates of the n sampling)
+print(data.class(list_of_results[[1]]))
+print(length(list_of_results[[1]]))
+
+#Each of those 1000 objects is a list of length 1.
+print(data.class(list_of_results[[1]][1]))
+print(length(list_of_results[[1]][1]))
+
+#Each of those 1000 lists contains a list of 3 elements, the strataG results. 
+print(data.class(list_of_results[[1]][[1]]))
+print(length(list_of_results[[1]][[1]]))
+
+#Those three elements are: $result, $pair.mat, $null.dist
+print(data.class(list_of_results[[1]][[1]]))
+print(length(list_of_results[[1]][[1]]))
+print(list_of_results[[1]][[1]])
+
+#what we want lives in $result.
+print(list_of_results[[1]][[1]]$result$pair.label)
+print(list_of_results[[1]][[1]]$result$Fst)
+print(list_of_results[[1]][[1]]$result$Fst.p.val)
+
+#what we want lives in $result. look at another. n = 17, rep 200
+print(list_of_results[[16]][[200]]$result$pair.label)
+print(list_of_results[[16]][[200]]$result$Fst)
+print(list_of_results[[16]][[200]]$result$Fst.p.val)
+
+```
+
+## Build a dataframe with full dataset in easy-access form for doing math and plotting.
+```{r}
+#store the list of n values in a simple vector. 
+ns <- as.integer(inputinfosorted$n)
+
+#loop over ns (and make sure output is one dataframe, not a list)
+data.df <- do.call(rbind, lapply(1:length(ns), function(i) {
+#loop over reps
+  allreps_for_one_n <- lapply(1:length(list_of_results[[i]]), function(r) {
+    #grab one strataG Fst result - one n, one rep.
+    onerep <- list_of_results[[i]][[r]]
+    #store length of results table (number of pairwise comparisons)
+    len <- length(onerep$result$Fst)
+    #create descriptive columns repeating the n and the replicate for this result to length of table
+    column1 = rep(ns[i], len)
+    column2 = rep(r, len)
+    #store strataG results in vectors
+    column3 = onerep$result$pair.label
+    column4 = onerep$result$Fst
+    column5 = onerep$result$Fst.p.val
+    #build a dataframe, 5 columns, with results and descriptors. 
+    one.df <- data.frame(n = column1, 
+                         rep = column2, 
+                         pairs = column3,
+                         Fst = column4, 
+                         pval = column5)
+    return(one.df) #output dataframe
+  })
+  onen.df <- do.call(rbind, allreps_for_one_n) #output dataframe (squish list of rep dataframes)
+}))
+
+```
+
+
+## Flush out descriptions of pairwise comparisions in dataframe 
+To this dataframe add more factor descriptors flushing out pair label information
+```{r}
+#Extract the two sites from the pair as separate quantities and add to dataframe as additional factors
+
+first_site<- unlist(lapply(as.character(data.df$pairs), function(compstring) {
+  first <- strsplit(compstring, " ")[[1]][[1]]
+}))
+second_site<- unlist(lapply(as.character(data.df$pairs), function(compstring) {
+  second <- strsplit(compstring, " ")[[1]][[4]]
+}))
+
+#check them out
+print(length(first_site))
+print(length(second_site))
+print(first_site[1:5])
+print(second_site[1:5])
+print(first_site[493:582])
+print(second_site[24567:24572])
+
+data.df$site1 <- first_site
+data.df$site2 <- second_site
+
+# Add Species designations for first and second of comparison pairs.
+scullyi <- as.character(c("HN", "HS", "F"))
+formosula <- as.character(c("CG", "D", "P","RN", "WS", "WA", "B", "V", "R", "AN", "AS"))
+gina_glenneae <- as.character(c("T"))
+
+species1 <- unlist(lapply(first_site, function(site) {
+  if (site %in% scullyi) {
+    answer <- "scullyi"
+  }
+  else if (site %in% formosula) {
+    answer <- "formosula"
+  }
+  else if (site %in% gina_glenneae) {
+    answer <- "gina-glenneae"
+  }
+  return(answer)
+}))
+
+species2 <- unlist(lapply(second_site, function(site) {
+  if (site %in% scullyi) {
+    answer <- "scullyi"
+  }
+  else if (site %in% formosula) {
+    answer <- "formosula"
+  }
+  else if (site %in% gina_glenneae) {
+    answer <- "gina-glenneae"
+  }
+  return(answer)
+}))
+
+#check them out
+print(length(species1))
+print(length(species2))
+print(species1[1:5])
+print(species2[1:5])
+print(species1[493:582])
+print(species2[24567:24572])
+
+data.df$species1 <- species1
+data.df$species2 <- species2
+
+
+#Add Counties (equivalent to species; but perhaps we'd want to label things geographically)
+county1 <- unlist(lapply(species1, function(sp) {
+  if (sp == "scullyi") {
+    co <- "Larimer"
+  }
+  else if (sp == "formosula") {
+    co <- "Jackson"
+  }
+  else if (sp == "gina-glenneae") {
+    co <- "Grand"
+  }
+  else {
+    print("uh-oh. mapping fail.")
+  }
+}))
+
+county2 <- unlist(lapply(species2, function(sp) {
+  if (sp == "scullyi") {
+    co <- "Larimer"
+  }
+  else if (sp == "formosula") {
+    co <- "Jackson"
+  }
+  else if (sp == "gina-glenneae") {
+    co <- "Grand"
+  }
+  else {
+    print("uh-oh. mapping fail.")
+  }
+}))
+
+data.df$county1 <- county1
+data.df$county2 <- county2
+
+#Add combinations of species and counties
+species_pair <- unlist(lapply(1:length(species1), function(i) {
+  pair <- paste(species1[i], "vs.", species2[i]) 
+}))
+
+data.df$speciespair <- factor(species_pair, levels = c("formosula vs. gina-glenneae", "formosula vs. formosula", "scullyi vs. formosula", "scullyi vs. scullyi", "scullyi vs. gina-glenneae"))
+
+counties_pair <- unlist(lapply(1:length(species1), function(i) {
+  pair <- paste(county1[i], "vs.", county2[i]) 
+}))
+
+data.df$countypair <- factor(counties_pair, levels = c("Jackson vs. Grand","Jackson vs. Jackson","Larimer vs. Jackson", "Larimer vs. Larimer", "Larimer vs. Grand"))
+
+#Add one more, sorting by whether pair in a comparison is from the same county/species or different.
+same_or_mixed <- unlist(lapply(1:length(species1), function(i) {
+  if ( species1[i] == species2[i] ) {
+    result <- "same species" #if you prefer county/species language, change these strings
+  }
+  else {
+    result <- "different species"
+  }
+  return(result)
+}))
+
+data.df$samespecies <- factor(same_or_mixed)
+
+
+```
+
+```{r}
+# Pair labels include (n) n in parentheses. Make a clean version. Didn't work quite as well as I'd hoped - 156 combinations instead of 105. different orders. 18 and 19 (more recently done ones) are coming out slightly differently in order. weird! same code!
+clean_pairs <- unlist(lapply(1:length(species1), function(i) {
+  thepair = sort(c(first_site[i], second_site[i]))
+  site_pair <- paste(thepair[1], "vs.", thepair[2]) 
+  return(site_pair)
+}))
+
+data.df$sitepair <- factor(clean_pairs)
+length(unique(data.df$sitepair))
+print(data.df[1,])
+
+
+```
+
+
+
+##Average over replicates
+```{r}
+#loop over values of n
+mean_rep.df <- do.call(rbind, lapply(1:length(ns), function(i) { #bundle list of dataframes
+    #grab the rows for just one value of n
+    onevaluen.df <- data.df[data.df$n == ns[i],]
+    #loop over instances of site pairs. ns also appear in pair names in parentheses, use clean ones.
+    one_n_all_pairs_list <- lapply(sort(unique(onevaluen.df$sitepair)), function(pair) {
+        print(sprintf("Calculating means for n = %s site pair %s", ns[i], pair))
+        #grab the rows for just one site pair (will be one n, one site, 1000 reps)
+        one_n_one_pair.df <- onevaluen.df[onevaluen.df$sitepair == pair,]      
+        
+        #calculate mean and standard deviation for Fst across 1000 reps. 
+        Fstmean = mean(one_n_one_pair.df$Fst)
+        Fststdev = sd(one_n_one_pair.df$Fst)
+        
+        #same for pvalue
+        Pvalmean = mean(one_n_one_pair.df$pval)
+        Pvalstdev = sd(one_n_one_pair.df$pval)
+        
+        #then build up a dataframe. first row of subset of big dataframe - all will be the same.
+        mean_row.df <- data.frame( n = one_n_one_pair.df$n[1], 
+                                   pairs = one_n_one_pair.df$pairs[1], 
+                                   fstmean = Fstmean, 
+                                   fststdev = Fststdev,
+                                   pvalmean = Pvalmean, 
+                                   pvalstdev = Pvalstdev,
+                                   site1 = one_n_one_pair.df$site1[1],
+                                   site2 = one_n_one_pair.df$site2[1],
+                                   species1 = one_n_one_pair.df$species1[1],
+                                   species2 = one_n_one_pair.df$species2[1],
+                                   county1 = one_n_one_pair.df$county1[1],
+                                   county2 = one_n_one_pair.df$county2[1],
+                                   speciespair = one_n_one_pair.df$speciespair[1],
+                                   countypair = one_n_one_pair.df$countypair[1],
+                                   samespecies = one_n_one_pair.df$samespecies[1], 
+                                   sitepair = one_n_one_pair.df$sitepair[1] 
+                                   )
+        return(mean_row.df)
+    })
+  
+    # bundle those rows into a dataframe (currently in a list, one entry for each pair)
+  one_n_all_pairs_means.df <- do.call(rbind, one_n_all_pairs_list)
+  return(one_n_all_pairs_means.df)
+}))
+
+```
+
+
+```{r}
+print(mean_rep.df[1:5,])
+
+```
+
+##Start plotting
+
+
+#warm up plotting code.
+
+#For one site
+x = mean_rep.df$n[mean_rep.df$sitepair == "AN vs. AS"]
+y = mean_rep.df$fstmean[mean_rep.df$sitepair == "AN vs. AS"]
+yerr = mean_rep.df$fststdev[mean_rep.df$sitepair == "AN vs. AS"]
+
+ggplot(mean_rep.df[mean_rep.df$sitepair == "AN vs. AS",], aes(x=x, y=y)) + 
+    geom_errorbar(aes(ymin=y-yerr, ymax=y+yerr), width=.1) +
+    geom_line() +
+    geom_point()
+
+
+#For one site
+x = mean_rep.df$n[mean_rep.df$sitepair == "AN vs. AS"]
+y = mean_rep.df$pvalmean[mean_rep.df$sitepair == "AN vs. AS"]
+yerr = mean_rep.df$pvalstdev[mean_rep.df$sitepair == "AN vs. AS"]
+
+ggplot(mean_rep.df[mean_rep.df$sitepair == "AN vs. AS",], aes(x=x, y=y)) + 
+    geom_errorbar(aes(ymin=y-yerr, ymax=y+yerr), width=.1) +
+    geom_line() +
+    geom_point()
+
+
+
+First,mean of replicates Fst as a function of n, with standard deviation errorbars
+```{r}
+library(ggplot2)
+#make a function that takes in one site pair name (from the cleaned up names) - will loop over these
+plot_Fstmean <- function(site_pair) {
+  print(sprintf("Working on plotting site pair %s.", site_pair))
+  
+  #pull relevant subset of mean dataframe
+  this_pair.df <- mean_rep.df[mean_rep.df$sitepair == site_pair, ]
+
+  #pull x, y and error bars from that dataframe
+  x = this_pair.df$n
+  y = this_pair.df$fstmean
+  yerr = this_pair.df$fststdev
+  
+  #plot x vs. y
+  ggplot(this_pair.df, aes(x=x, y=y)) + 
+    #with error bars
+    geom_errorbar(aes(ymin=y-yerr, ymax=y+yerr), width=.1) +
+    #lines between points
+    geom_line() +
+    #points themselves
+    geom_point() + 
+    # set limits to match for all plots (Fst can go from 0 to 1)
+    coord_cartesian(ylim = c(0, 1)) +
+    theme_classic() + 
+    ggtitle(paste("Site pair: ", site_pair), subtitle = "Fst across 1000 random subsamplings of individuals")+
+    xlab("Size of subsample (n)")+
+    ylab("mean Fst\n +/- standard deviation")+
+    theme(plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5))
+  
+  #create a file name to save this to, that describes situation
+  replacespaces = gsub(" ", "_", site_pair)
+  ditchdot = gsub("\\.", "", replacespaces)
+  filename <- paste("mean_fst_1000rep_subsamples_n2_n30_sitepair_", ditchdot, "_5_26_17.pdf", sep="") 
+  
+  #save the plot to pdf
+  ggsave(filename, width = 6, height = 4, units = "in")
+}
+
+#test as you go with the actual loop.
+lapply(unique(mean_rep.df$sitepair), plot_Fstmean)
+
+```
+
+First,mean of replicates pval as a function of n, with standard deviation errorbars
+```{r}
+library(ggplot2)
+#make a function that takes in one site pair name (from the cleaned up names) - will loop over these
+plot_pvalmean <- function(site_pair) {
+  print(sprintf("Working on plotting site pair %s.", site_pair))
+  
+  #pull relevant subset of mean dataframe
+  this_pair.df <- mean_rep.df[mean_rep.df$sitepair == site_pair, ]
+
+  #pull x, y and error bars from that dataframe
+  x = this_pair.df$n
+  y = this_pair.df$pvalmean
+  yerr = this_pair.df$pvalstdev
+  
+  #plot x vs. y
+  ggplot(this_pair.df, aes(x=x, y=y)) + 
+    #with error bars
+    geom_errorbar(aes(ymin=y-yerr, ymax=y+yerr), width=.1) +
+    #lines between points
+    geom_line() +
+    #points themselves
+    geom_point() + 
+    # set limits to match for all plots (Fst can go from 0 to 1)
+    coord_cartesian(ylim = c(0, 1)) +
+    theme_classic() + 
+    ggtitle(paste("Site pair: ", site_pair), subtitle = "p-value for Fst across 1000 random subsamplings of individuals")+
+    xlab("Size of subsample (n)")+
+    ylab("mean p-value for Fst \n +/- standard deviation")+
+    theme(plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5))
+  
+  #create a file name to save this to, that describes situation
+  replacespaces = gsub(" ", "_", site_pair)
+  ditchdot = gsub("\\.", "", replacespaces)
+  filename <- paste("mean_fst_pval_1000rep_subsamples_n2_n30_sitepair_", ditchdot, "_5_26_17.pdf", sep="") 
+  
+  #save the plot to pdf
+  ggsave(filename, width = 6, height = 4, units = "in")
+}
+
+#test as you go with the actual loop.
+lapply(unique(mean_rep.df$sitepair), plot_pvalmean)
+
+```
+
+Some error bars weirdly small on p-values
+```{r}
+data.df$pval[((data.df$sitepair == "R vs. RN") & (data.df$n == 2))]
+#I guess they are pretty tight. not sure. 
+
+data.df$pval[((data.df$sitepair == "AN vs. HS") & (data.df$n == 2))]
+
+#I guess they are pretty tight. not sure. 
+```
+
+
+#given odd errorbars on pvalues, visualize as violin plots with full distribution instead. 
+Make a plot! 
+```{r}
+site_pair = "D vs. WS"
+#print(sprintf("Working on plotting site pair %s.", site_pair))
+  
+  #pull relevant subset of mean dataframe
+  this_pair.df <- data.df[data.df$sitepair == site_pair & data.df$n < 5, ]
+
+  #pull x, y and error bars from that dataframe
+
+  ggplot(this_pair.df, aes(x = as.factor(n), y = pval)) + 
+  geom_violin() +
+  theme_classic()#+
+  
+
+
+```
+
+
+```{r}
+library(ggplot2)
+#make a function that takes in one site pair name (from the cleaned up names) - will loop over these
+plot_viol_pval <- function(site_pair) {
+  print(sprintf("Working on plotting site pair %s.", site_pair))
+  
+  #pull relevant subset of mean dataframe
+  this_pair.df <- data.df[data.df$sitepair == site_pair, ]
+
+  #pull x, y and error bars from that dataframe
+
+  ggplot(this_pair.df, aes(x = as.factor(n), y = pval)) + 
+  geom_violin(width=100) +
+  theme_classic()#+
+  
+    
+  #ggtitle("1000x Bootstrapped Fst values for all pairwise comparisons between 15 sites")+
+  #xlab("Pairwise comparisons")+
+  #ylab("Fst")+
+  #theme(legend.title=element_blank())+
+  #theme(plot.title = element_text(hjust = 0.5))+
+  #theme(legend.position="top")
+  
+  
+  #plot x vs. y
+  #ggplot(this_pair.df, aes(x=x, y=y)) + 
+    #with error bars
+   # geom_errorbar(aes(ymin=y-yerr, ymax=y+yerr), width=.1) +
+    #lines between points
+    #geom_line() +
+    #points themselves
+    #geom_point() + 
+    # set limits to match for all plots (Fst can go from 0 to 1)
+    #coord_cartesian(ylim = c(0, 1)) +
+    #theme_classic() + 
+   # ggtitle(paste("Site pair: ", site_pair), subtitle = "p-value for Fst across 1000 random subsamplings of individuals")+
+   # xlab("Size of subsample (n)")+
+   # ylab("mean p-value for Fst \n +/- standard deviation")+
+   # theme(plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5))
+  
+  #create a file name to save this to, that describes situation
+  replacespaces = gsub(" ", "_", site_pair)
+  ditchdot = gsub("\\.", "", replacespaces)
+  filename <- paste("viol_fst_pval_1000rep_subsamples_n2_n30_sitepair_", ditchdot, "_5_26_17.pdf", sep="") 
+  
+  #save the plot to pdf
+  ggsave(filename, width = 16, height = 8, units = "in")
+}
+
+#test as you go with the actual loop.
+lapply(unique(data.df$sitepair), plot_viol_pval)
+
+```
+
+```{r}
+
+
+```
+
+
+
+
+
+

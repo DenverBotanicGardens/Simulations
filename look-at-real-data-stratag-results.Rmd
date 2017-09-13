@@ -1,0 +1,32 @@
+---
+title: "Look at real data strataG results"
+author: "Jessie Berta-Thompson"
+date: "May 5, 2017"
+output: html_document
+---
+
+## Set up
+Clear history.
+Check location.
+Load strataG results for phacelia data (run in subsample_and_run_popgen_V1_5_4_17.Rmd)
+```{r}
+rm(list=ls())
+print("Where are we? Where will new files without specified full path be created?")
+getwd()
+load("full_data_strataG_results_5_4_17.RData")
+#print, move to excel
+print(real_by_loc_oT)
+print(real_by_loc_pT)
+print(data.class(real_by_loc_pT))
+print(length(real_by_loc_pT))
+print(data.class(real_by_loc_pT$result))
+write.csv(real_by_loc_pT$result, file="real_data_pairwise_test_results_by_location.txt")
+print(real_by_loc_pT$pair.mat)
+print(real_by_species_oT)
+
+print(real_by_species_pT$pair.mat)
+print(real_by_species_pT$result)
+write.csv(real_by_species_pT$result, file="real_data_pairwise_test_results_by_species.txt")
+
+
+```

@@ -1,0 +1,97 @@
+---
+title: "Analysis of subsampling Phacelia - Fst calcs for different ns"
+author: "Jessie Berta-Thompson"
+date: "May 16, 2017"
+output: html_document
+---
+
+## Ran a subsampling analysis (1000x samples of n = 2, n = 3, ...n=30 without replacement) to explore the effect of sample size on Fst results, over the weekend which is now complete. Read in results and plot results here.
+
+Scripts that created these results:
+[1] "subsample_and_run_popgen_n2_n30_5_9_17.Rmd"
+[2] "subsample_and_run_popgen_n30_n2_5_9_17.Rmd"
+
+Associated lab notebook (day by day notes for subproject):
+"Phacelia_subsampling_analysis_May_2017.docx"
+
+Results files:
+ [1] "10n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"    
+ [2] "11n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"    
+ [3] "12n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"    
+ [4] "13n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"    
+ [5] "13n_rev_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"
+ [6] "14n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"    
+ [7] "14n_rev_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"
+ [8] "15n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"    
+ [9] "15n_rev_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"
+[10] "16n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"    
+[11] "16n_rev_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"
+[12] "17n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"    
+[13] "17n_rev_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"
+[14] "18n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"    
+[15] "18n_rev_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"
+[16] "19n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"    
+[17] "19n_rev_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"
+[18] "20n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"    
+[19] "20n_rev_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"
+[20] "21n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"    
+[21] "21n_rev_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"
+[22] "22n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"    
+[23] "22n_rev_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"
+[24] "23n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"    
+[25] "23n_rev_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"
+[26] "24n_rev_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"
+[27] "25n_rev_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"
+[28] "26n_rev_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"
+[29] "27n_rev_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"
+[30] "28n_rev_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"
+[31] "29n_rev_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"
+[32] "2n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"     
+[33] "30n_rev_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"
+[34] "3n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"     
+[35] "4n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"     
+[36] "5n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"     
+[37] "6n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"     
+[38] "7n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"     
+[39] "8n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"     
+[40] "9n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData"  
+
+learned some new R to get these filenames easily (pwd, cd, ls):
+getwd()
+setwd("Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/Subsampling/")
+list.files(pattern = "5_9_17.Rmd")
+
+#horrific error in saving - these are just strings, not variables. rerun.
+```{r}
+load("2n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData")
+load("3n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData")
+load("4n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData")
+load("5n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData")
+load("6n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData")
+load("7n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData")
+load("8n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData")
+load("9n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData")
+load("10n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData")
+load("11n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData")
+load("12n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData")
+load("13n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData")
+load("14n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData")
+load("15n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData")
+load("16n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData")
+load("17n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData")
+load("18n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData")
+load("19n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData")
+load("20n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData")
+load("21n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData")
+load("22n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData")
+load("23n_Fst_calcs_subsample_1000x_by_location_5_9_17.RData")
+load("24n_rev_Fst_calcs_subsample_1000x_by_location_5_9_17.RData")
+load("25n_rev_Fst_calcs_subsample_1000x_by_location_5_9_17.RData")
+load("26n_rev_Fst_calcs_subsample_1000x_by_location_5_9_17.RData")
+load("27n_rev_Fst_calcs_subsample_1000x_by_location_5_9_17.RData")
+load("28n_rev_Fst_calcs_subsample_1000x_by_location_5_9_17.RData")
+load("29n_rev_Fst_calcs_subsample_1000x_by_location_5_9_17.RData")
+load("30n_rev_Fst_calcs_subsample_1000x_by_location_5_9_17.RData")
+
+
+```

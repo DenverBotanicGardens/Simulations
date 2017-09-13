@@ -1,0 +1,168 @@
+---
+title: "Run strataG with more p value reps"
+author: "Jessie Berta-Thompson"
+date: "June 8, 2017"
+output: html_document
+---
+
+*************************************************************************************
+Set up: clear history and make sure you're in a good working directory. 
+Gather tools (reading and converting popgen data, running popgen calculations)
+```{r}
+rm(list=ls())
+print("Where are we? Where will new files without specified full path be created?")
+getwd()
+library(ape)
+library(phangorn)
+library(ade4)
+library(adegenet)
+library(apex)
+library(strataG)
+```
+*************************************************************************************
+Step 1. Get the Phacelia microsatellite data
+
+Read in the file (adegenet tools that take a genepop.gen file, make a genind object)
+```{r}
+Real_data.genind <-read.genepop("Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/Subsampling/Copy_of_real_data_PhfoAllGenePop_13Dec2016.gen")
+
+#Note one error message: "Duplicate individual names detected. Coercing them to be unique." This is because .gen file has no individual names, just a list of genotypes, but genind requires individual names. They are given numbers, in order of original file.
+```
+
+Take a look at the genind object
+```{r}
+print("Real data genind (by sampling population)")
+#print on whole object gives an overview
+print(Real_data.genind)
+
+#number of samples per location
+print(table(Real_data.genind$pop))
+
+#the 12 loci and their alleles?
+print(Real_data.genind$all.names)
+
+#for each individual (rows), the number of each allele of each locus
+print(Real_data.genind$tab[1:15,1:5])
+```
+
+This is one way of organizing the data - by sampling location. Sometimes we will be working off the 15 sample populations in this file, but we will also be working at the species level, so  we need to map these site codes to the three putative species across the site map - copy of a file that maps sites to species lives here:
+Q:\Research\All_Projects_by_Species\Phacelia SPECIES\Phacelia_formosula\Phacelia formosula_abiotic\Modelling\MetaPopGen\Copy_of_Species_data.xlsx
+
+Gathering required information in this file here:
+Q:\Research\All_Projects_by_Species\Phacelia SPECIES\Phacelia_formosula\Phacelia formosula_abiotic\Modelling\Subsampling\Summary_of_real_data.xlsx
+
+Convert list of populations to list of species
+```{r}
+#grab that list of populations and convert to a vector for easy manipulation
+pop_vector <- as.character(Real_data.genind@pop)
+
+#how long?
+print("population vector")
+print(length(pop_vector))
+data.class(pop_vector)
+print(pop_vector)
+
+#Make a new empty vector to hold the species version of this
+species_vector <- character(length = length(pop_vector))
+
+#make three character vectors with the mapping between species and populations
+scullyi <- as.character(c("HN", "HS", "F"))
+formosula <- as.character(c("CG", "D", "P","RN", "WS", "WA", "B", "V", "R", "AN", "AS"))
+gina_glenneae <- as.character(c("T"))
+
+#Loop through and perform mapping
+for (i in 1:length(pop_vector)) {
+  p <- pop_vector[i]
+  if (p %in% scullyi) {
+    species_vector[i] <- "s"}
+  else if (p %in% formosula) {
+    species_vector[i] <- "f"}
+  else if (p %in% gina_glenneae) {
+    species_vector[i] <- "g"}
+  else {
+    print("uhoh, population not found in library")
+  }
+}
+#how long?
+print("species vector")
+print(length(species_vector))
+data.class(species_vector)
+print(species_vector)
+
+#Make copies of the genind, and swap out the @pop factor for the species level designations. 
+real_data_by_loc.genind <- Real_data.genind #more accurate name
+real_data_by_species.genind <- Real_data.genind
+
+real_data_by_species.genind@pop <- factor(species_vector)
+
+#Species-based genind
+print("Species-based genind")
+print(real_data_by_species.genind)
+print(table(real_data_by_species.genind$pop))
+
+```
+One last manipulation, convert geninds to gtypes for strataG program that we're using to calculate Fst. 
+```{r}
+real_data_by_loc.gtypes <- genind2gtypes(real_data_by_loc.genind)
+print(real_data_by_loc.gtypes)
+
+real_data_by_species.gtypes <- genind2gtypes(real_data_by_species.genind)
+print(real_data_by_species.gtypes)
+```
+
+
+
+
+*************************************************************************************
+#Run the strataG analyses on the full original dataset, split both ways.
+Plus count time to get an idea of what these entail computationally.
+
+```{r}
+t0 = Sys.time()#note the time at the beginning
+real_by_species_oT <- overallTest(real_data_by_species.gtypes, nrep=10000)
+t1 = Sys.time()
+
+print(sprintf("***Done with overall test by species, which took %s minutes. %s minutes since start.***", format(as.numeric(t1-t0,units="mins"), digits=3), format(as.numeric(t1-t0,units="mins"), digits=3)))
+
+real_by_species_pT<- pairwiseTest(real_data_by_species.gtypes, nrep=10000)
+
+t2 = Sys.time()
+
+print(sprintf("***Done with pairwise test by species, which took %s minutes. %s minutes since start.***", format(as.numeric(t2-t1,units="mins"), digits=3), format(as.numeric(t2-t0,units="mins"), digits=3)))
+
+
+real_by_loc_oT <- overallTest(real_data_by_loc.gtypes, nrep=10000)
+
+t3 = Sys.time()
+
+print(sprintf("***Done with overall test by location, which took %s minutes. %s minutes since start.***", format(as.numeric(t3-t2,units="mins"), digits=3), format(as.numeric(t3-t0,units="mins"), digits=3)))
+
+
+real_by_loc_pT<- pairwiseTest(real_data_by_loc.gtypes, nrep=10000)
+
+t4 = Sys.time()
+
+print(sprintf("***Done with pairwise test by location, which took %s minutes. %s minutes since start.***", format(as.numeric(t4-t3,units="mins"), digits=3), format(as.numeric(t4-t0,units="mins"), digits=3)))
+
+filepath <- "full_data_strataG_results_10000repspanmicticnull_6_8_17.RData" 
+save(real_by_species_oT, real_by_species_pT, real_by_loc_oT, real_by_loc_pT, file=filepath)
+t5 = Sys.time()
+
+print(sprintf("*** 4 tests done and saved. %s minutes since start.***", format(as.numeric(t5-t0,units="mins"), digits=3)))
+
+#trying to change settings to keep.null = TRUE 
+#throws an assignment error. 
+
+```
+
+
+## Move into text files for a quick look
+```{r}
+getwd()
+#print, move pairwise test results to excel
+write.csv(real_by_loc_pT$result, file="real_data_pairwise_test_results_by_location.txt")
+write.csv(real_by_species_pT$result, file="real_data_pairwise_test_results_by_species.txt")
+#load in data if needed: load("full_data_strataG_results_5_4_17.RData")
+
+```
+

@@ -1,0 +1,499 @@
+---
+title: "Rmetasim_processing_saved_data_V5"
+author: "Jessie Berta-Thompson"
+date: "February 9, 2017"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+# immediate for next day: (where this left off) deal with cutoff in sampling - error prone!
+
+
+## immediate steps for today's work: 
+## test stepiwse method for calculating and plotting function
+## incorporate population genetics
+## reorganize script so clear (remove old stuff)
+## add steps to save and load saved genind files (costly to rerun)
+## implement sampling versions in same framework
+## perform a test of different sampling sizes (then you're going to need stats to test detectability of features with different n)
+
+## using V6 2000 plants + seeds (2% plants total) + 5000 generations + 10 replicates.
+
+## Structure of Rmetasim output files that this script parses
+Each output file contains a 'replist', list of replicates from one Rmetasim run, the structure of which is:
+[[[rep1 generations sampled list][rep1 rland$individuals list of matrices]] [[rep2 generations sampled list][rep2 rland$individuals list of matrices]]...]
+replist is a list containing r objects, where r is the number of replicates, with a dataset for each replicate.
+Each of the replicate objects is a list containing 2 objects, a list containing the year for t generations sampled and a list containing rland$individuals matrices with genetic data for each t generation sampled.
+Sampling from nested lists:
+This is the first replicate's (1) individual list (2) containing rland$individuals for all time points
+replist[[1]][[2]]
+This is the first replicate's (1) list of generation times (1) that correspond to samples in individual list
+replist[[1]][[1]]
+This is the first replicate's (1) individual's data (2) for the third timepoint (3) (a single rland$individuals object)
+[[1]][[2]][3]
+
+## Processing rmetasim output
+Output datafiles from our Rmetasim runs contain a 'replist' list of lists with generations sampled and rland$individuals for each replicate.
+```{r}
+#clear environment before starting
+rm(list =ls())
+#load desired dataset
+load("/Users/jessie/Documents/botanic/2_3_17_2_8_17_coding/replist_1_19_17_V6_seed_test_5000gen.Rdata") 
+
+#usual path on lab computer example
+#load("Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/Rmetasim/replist_1_19_17_V6_seed_test_5000gen.Rdata")
+```
+
+
+## Extract some useful values about the dataset from its dimensions
+```{r}
+#How many replicates does this dataset contain?
+nreps = length(replist)
+print(sprintf("This dataset contains %s replicate simulations.", nreps))
+
+#How many time samples were collected for each replicate? How many time samples maximum? (a given replicate can have less than the input length of run when extinctions occur)
+nsamples_list <- list()
+for (i in 1:length(replist)){
+  nsamples <-length(replist[[i]][[1]])
+  nsamples_list[i] <- nsamples}
+
+maxsamples <- max(unlist(nsamples_list))
+print(sprintf("At most, %s time samples were collected.", maxsamples))
+
+#How many years of simulation does this represent?
+nyears_list <- list()
+for (i in 1:length(replist)){
+  nyears <-replist[[i]][[1]][length(replist[[i]][[1]])]
+  nyears_list[i] <- nyears}
+
+maxyears <- max(unlist(nyears_list))
+print(sprintf("At most, this simulation was run for %s years.", maxyears))
+
+#what years were sampled (for the longest)?
+index_of_longest <- which.max(unlist(nyears_list))
+sample_years <- replist[[index_of_longest]][[1]]
+print("These years were sampled:")
+print(unlist(sample_years))
+
+```
+
+
+
+## Plotting function - many things will need to be visulized this way.
+```{r}
+library("reshape2")
+library("ggplot2")
+
+plot_list_of_lists <- function(input, file_name, option, yname){
+#for plotting dataframe, need dimensions to match (initial data won't). Fill in zeros or NaNs for lists with fewer generations to acheive.
+  even_ys <- lapply(1:nreps, function(r) {
+  even_list = list()
+  for (i in 1:maxsamples) {
+    if (i%in% 1:length(input[[r]])) {
+      #print(sprintf("Data exists for rep # %s timepoint %s, use 0 for number of individuals", r,i ))
+      even_list[i] <- input[[r]][[i]]}
+   else {
+      #print(sprintf("Data does not exist for rep # %s timepoint %s ", r,i ))
+      even_list[i] <- option
+    }}
+    return(even_list)})
+
+#calculate the mean value for the replicates
+meanlist = list()
+for (i in 1:maxsamples) { #loop over time
+  values = list() #make an empty list to hold the values for all replicates at this one timepoint
+  for (j in 1:nreps) { #loop over replicates
+    values[j] <- even_ys[[j]][[i]] #sample all replicates, data, this time point
+  meanlist[i] <- mean(unlist(values))}}  
+
+dataset_list <- c(list(sample_years), list(meanlist), even_ys)
+repnames <-unlist(lapply(1:nreps, function(x) {sprintf("Replicate%s",x)}))
+columnnames <- c("Years", "Mean", repnames)
+names(dataset_list) <- columnnames
+
+# make data into a melted dataframe object for use by ggplot: list of lists, put together lists of counts over time as columns of a matrix, one for each replicate.
+data_matrix<- matrix(unlist(dataset_list), ncol=length(dataset_list), byrow=FALSE)
+df <- data.frame(data_matrix)
+colnames(df) <- columnnames
+
+melteddata <- melt(df, id="Years")
+
+p<- ggplot(melteddata, aes(Years, value, colour = variable))+
+    geom_line()+
+    ylab(yname)
+    theme_bw()
+ggsave(filename=file_name, plot=p, width = 6, height = 4, units = "in")
+}
+```
+
+
+Gather first data set: simple counts of individuals.
+```{r}
+#build a lists of lists (what plotting function accepts), for the total number of individuals at each timepoint.
+total_rland_ind_counts_lol <- lapply(1:nreps, function(n) {      # loop over replicates
+  lapply(replist[[n]][[2]], function(x) {nrow(x)})})           # loop over timepoints, count the matrix rows = number of individuals at timepoint 
+```
+
+
+Test plotting function on that count data
+```{r}
+#test:
+input_lol <- total_rland_ind_counts_lol
+filepath_to_save <- "/Users/jessie/Documents/botanic/2_3_17_2_8_17_coding/replist_1_19_17_V6_seed_test_5000gen_2_9_total_ind_counts.jpg"
+option <- 0 #or NaN (average will be calculated - decide if 0s or ignore more approriate for post-extinction time points)
+y_name <- "Total individuals"
+
+plot_list_of_lists(input=input_lol,file_name=filepath_to_save,option=option,yname=y_name)
+
+#input, file_name, option, yname can also be entered in order
+```
+
+
+How many populations remaining? (3, 2, 1 or 0)
+```{r}
+#build a lists of lists (what plotting function accepts), for the total number of individuals at each timepoint.
+npops_lol <- lapply(1:nreps, function(r) {      # loop over replicates
+  lapply(replist[[r]][[2]], function(x) { # loop over timepoints
+    rland.df <- data.frame(x) 
+    nsubpops<- length(unique(rland.df[,1]))
+    if (nsubpops %in% c(1, 2, 3, 4)) {
+      npops <- 1
+      }
+    else if (nsubpops %in% c(5, 6, 7, 8)){
+      npops <- 2
+      }
+    else if (nsubpops %in% c(9, 10, 11, 12)){
+      npops <- 3
+      }
+    else if (nsubpops == 0) {
+      npops <- 0
+    }
+    else {
+      print("something weird")
+    }
+    print(sprintf("Rep %s, one timepoint, npops %s", r, npops))
+    return(npops)
+    })
+    })    
+```
+
+
+Plot this number of populations list.
+```{r}
+#test:
+input_lol <- npops_lol
+filepath_to_save <- "/Users/jessie/Documents/botanic/2_3_17_2_8_17_coding/replist_1_19_17_V6_seed_test_5000gen_2_9_number_of_pops.jpg"
+option <- 0 #or NaN (average will be calculated - decide if 0s or ignore more approriate for post-extinction time points)
+y_name <- "Number of populations"
+
+plot_list_of_lists(input=input_lol,file_name=filepath_to_save,option=option,yname=y_name)
+
+#input, file_name, option, yname can also be entered in order
+```
+
+
+## Parse data into a genind format without sampling (only once - it's a slow step), then gather what's needed from that one variable at a time.
+```{r}
+library(adegenet)
+#*****if already saved, just run this line instead. but even just loading these can be slow.
+#load("/Users/jessie/Documents/botanic/2_3_17_2_8_17_coding/replist_1_19_17_V6_seed_test_5000gen_genind_lol.Rdata")
+
+genind_lol<- lapply(1:nreps, function(r) { #loop over reps
+  print(sprintf("on rep %s", r)) #track progress
+  one_reps_geninds_over_time<-lapply(1:length(replist[[r]][[2]]), function(t){#loop over timepoints
+    print(sprintf("on time %s", t)) #track progress
+    rland.df <- data.frame(replist[[r]][[2]][t]) #df from one rland$individuals 
+    alleles <- seq(7,length(rland.df)-1,2) # Combine alleles per locus to format for what genind wants
+    rland.2genind <- sapply(alleles, function(x){paste(rland.df[,x], rland.df[,x+1], sep = "-")})
+    #label populations
+    rland.df$pop <- "pop3"
+    rland.df$pop[rland.df$X1 < 8] <- "pop2"
+    rland.df$pop[rland.df$X1 < 4] <- "pop1"
+    #Make a genind object
+    print("building genind")
+    rland.genind <- df2genind(rland.2genind, pop = rland.df$pop, type = "codom", sep="-")
+    return(rland.genind)}) #mean number of alleles per locus
+    return(one_reps_geninds_over_time)})
+
+#because this step is slow, save the list of lists of geninds
+save(genind_lol,file="/Users/jessie/Documents/botanic/2_3_17_2_8_17_coding/replist_1_19_17_V6_seed_test_5000gen_genind_lol.Rdata")
+
+```
+
+# Working off genind list, get mean alleles per locus again.
+```{r}
+allele_counts_lol<- lapply(1:nreps, function(r) {
+  mean_allelle_count_list_over_time<-lapply(1:length(genind_lol[[r]]), function(t){
+    genind <- genind_lol[[r]][[t]]
+    return(mean(genind@loc.n.all))}) #mean number of alleles per locus
+    return(mean_allelle_count_list_over_time)})
+
+```
+
+Plot this mean alleles per locus list.
+```{r}
+#test:
+input_lol <- allele_counts_lol
+filepath_to_save <- "/Users/jessie/Documents/botanic/2_3_17_2_8_17_coding/replist_1_19_17_V6_seed_test_5000gen_2_9_allele_counts.jpg"
+option <- 0 #or NaN (average will be calculated - decide if 0s or ignore more approriate for post-extinction time points)
+y_name <- "Mean number of alleles per locus"
+
+plot_list_of_lists(input=input_lol,file_name=filepath_to_save,option=option,yname=y_name)
+
+#input, file_name, option, yname can also be entered in order
+```
+
+## Full pop gen stats too slow to run on full datasets. Have to sample at this point. 
+#Pop stats with sampling.
+```{r}
+library(adegenet)
+library(strataG)
+
+sampled_genind_lol<- lapply(1:nreps, function(r) { # loop over replicates
+  sampled_genind_list_over_time<-lapply(replist[[r]][[2]], function(x){ # loop over time/matrices 
+    #x = replist[[9]][[2]][19] #one matrix: in lapply, simply x; problem matrix here - only one plant.
+    rland.df <- data.frame(x) #convert to dataframe
+    alleles <- seq(7,length(rland.df)-1,2) #sample allele data. always start with 7, 29 = length of dataframe-1,
+    rland.2genind <- sapply(alleles, function(x){paste(rland.df[,x], rland.df[,x+1], sep = "-")}) # Combine alleles per locus to format for genind
+    print("size of starter")
+    print(length(rland.2genind))
+    #label populations
+    rland.df$pop <- "pop3"
+    rland.df$pop[rland.df$X1 < 8] <- "pop2"
+    rland.df$pop[rland.df$X1 < 4] <- "pop1"
+    #sample just flowering plants from each population: 3, 7, and 11s
+    frompops <- c(3,7,11)
+    #sample at random, n individuals per population.
+    rows <- lapply(frompops, function(x){ #loop through flower pops to create sample list.
+      n_pop <- length(rland.df$X1[rland.  skjabfjhsbdf
+                                  df$X1 == x]) #count the number of instances of given population (flowering pop1, 2 or 3)
+      print("npop")
+      print(n_pop)
+      print("Done with counting pops")
+      if(n_pop >=30){ # PUT more in here to deal with less than cutoff cases #this throws an error if there is only 1 flowering plant in a sample 
+        print("Hooray, big enough!")  
+        totake<-sample(which(rland.df$X1 == x),30)
+          }   
+      else {
+        print("not enough plants")
+        totake<-NaN
+      }
+      return(totake)}
+    )
+    print(rows)
+      print("Done with deciding sampling rows")
+      rows <- do.call(c,rows)
+      print("Done with docall")
+
+      samp.rland.2genind <- rland.2genind[rows,] #in error, this one is 0 - usually 1080, 720, 360.
+      print(length(samp.rland.2genind))
+      samp.rland.df <- rland.df[rows,]
+      print(length(samp.rland.df))
+      print("Done with subsampling")
+      print(data.class(samp.rland.2genind))
+      rland.genind <- df2genind(samp.rland.2genind, pop = samp.rland.df$pop, type = "codom", sep="-") #error occurs here - size mismatch
+      print(sprintf("done with 30-sample genind for %s one of timepoints",r))
+      return(rows)}) #mean number of alleles per locus
+    return(sampled_genind_list_over_time)})
+
+```
+
+
+
+# Working off sampled genind list, calculate overall test pop gen stats
+```{r}
+sampled_overall_test_lol<- lapply(1:nreps, function(r) {
+  sampled_overall_list_over_time<-lapply(1:length(sampled_genind_lol[[r]]), function(t){
+    genind <- sampled_genind_lol[[r]][[t]]
+    rland.gtypes <- genind2gtypes(genind)
+    print(sprintf("Calculating overall test for rep %s timepoint %s ", r, t))
+    ot <- overallTest(rland.gtypes)
+    return(ot)}) #mean number of alleles per locus
+    return(sampled_overall_list_over_time)})
+
+```
+
+      print(ot$result)
+#print(ot$result[1,])
+#print(ot$result[3,1])
+#print(ot$result[3,2])
+
+#data.class(ot$result)
+#print(ot$strata.freq)
+pws <- pairwiseTest(rland.gtypes)
+#print("And try to sample")
+#print(data.class(pws[1]$result))
+pws[1]$result
+#pws[1]$result[1,10]
+
+
+
+```{r}
+library(strataG)
+library(adegenet)
+
+overall_test_lol<- lapply(1:nreps, function(r) {
+  ot_list_one_rep_over_time<-lapply(1:length(genind_lol[[r]]), function(t){
+    print(sprintf("on replicate %s, timepoint %s", r, t))
+    genind <- genind_lol[[r]][[t]]
+    rland.gtypes <- genind2gtypes(genind)
+    ot <- overallTest(rland.gtypes)
+    return(ot)}) #mean number of alleles per locus
+    return(ot_list_one_rep_over_time)})
+
+
+#Parse that for overall Fst
+overall_Fst_lol<- lapply(1:nreps, function(r) {
+  Fst_list_one_rep_over_time<-lapply(1:length(overall_test_lol[[r]]), function(t){
+    ot <- overall_test_lol[[r]][[t]]
+    Fst <- ot$result
+    return(Fst)}) #mean number of alleles per locus
+    return(Fst_list_one_rep_over_time)})
+
+#Accessing pieces of this will come next.
+#print(ot$result)
+#print(ot$result[1,])
+#print(ot$result[3,1])
+#print(ot$result[3,2])
+#print(ot$strata.freq)
+
+pairwise_test_lol<- lapply(1:nreps, function(r) {
+  pw_list_one_rep_over_time<-lapply(1:length(genind_lol[[r]]), function(t){
+    print(sprintf("on replicate %s, timepoint %s", r, t))
+    genind <- genind_lol[[r]][[t]]
+    rland.gtypes <- genind2gtypes(genind)
+    pw <- pairwiseTest(rland.gtypes)
+    return(pw)}) #mean number of alleles per locus
+    return(pw_list_one_rep_over_time)})
+
+
+#Accessing
+#pw[1]$result
+#pws[1]$result[1,10]
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## Plot the number of alleles
+```{r}
+jpeg("/Users/jessie/Documents/botanic/2_3_17_2_8_17_coding/replist_1_19_17_V6_seed_test_5000gen_2_8_allele_count.jpg", width=600, height=400, units="px")
+
+
+dev.off()
+
+```
+
+
+
+
+
+## Structure of rland$individuals
+
+From "Creating Landscapes" vignette, what the columns in the rland$individuals table mean
+"The first six columns are always present and the last five shown here are a product of the choice of number of loci. The first column contains the individuals subpopulation and lifecycle stage (subpopulation = floor(x/rland\$intparam\$stages), lifecycle stage = x mod rland\$intparam\$stages). The second column is currently unused, always 0. The third column contains the generation in which the individual was born or created. The next three contain numerical ids for the individual, its mother and its father. After the first six columns the indivduals genetic code begins. The loci are shown in order with 2 columns for diploid loci and 1 column for haploid loci. The value of these columns represent the allele index of the allele the individual carries."
+
+
+
+
+
+
+## Early drafts of other processing step
+
+
+table of subpopulations
+#```{r}
+
+
+plot(replist[[1]][[1]], nrow(replist[[1]][[2]]))
+
+
+
+numind <- sapply(rland.list[[2]], function(x){
+  nrow(x)
+})
+subpops <- lapply(rland.list[[2]], function(x){
+  table(x[,1])
+})
+
+subpops <- do.call(rbind, subpops)
+head(subpops)
+
+subpops <- data.frame(subpops)
+subpops1<- melt(subpops, id.vars = rownames(subpops), value.name = "SubClass")
+
+ggplot(subpops, aes())
+
+#```
+
+
+
+# Population Genetic statistics
+#```{r}
+library(adegenet)
+
+pops <- seq(0,4,2)
+
+rland.df <- as.data.frame(replist[[1]][[2]][1])
+
+alleles <- seq(7,29,2)
+rland.2genind <- sapply(alleles, function(x){
+  paste(rland.df[,x], rland.df[,x+1], sep = "-")
+})
+
+
+rland.df$pop[rland.df$V1 == 0 | rland.df$V1 == 1 ] <- "pop1"
+rland.df$pop[rland.df$V1 == 2 | rland.df$V1 == 3 ] <- "pop2"
+rland.df$pop[rland.df$V1 == 4 | rland.df$V1 == 5 ] <- "pop3"
+
+# following doesn't work yet!
+rland.df$pop <- sapply(pops, function(x){
+  pop <- if(rland.df$V1 == x | rland.df$V1 == x+1){
+    paste("pop",x,sep="")
+  }
+  pop
+})
+
+str(rland.df)
+
+rland.df2genind <- data.frame(rland.df[,c(3,31)], rland.2genind)
+
+library(strataG)
+
+head(rland.df2genind)
+
+rland.genind <- df2genind(rland.df2genind[,-(1:2)], pop = rland.df2genind$pop, type = "codom", sep="-")
+class(rland.genind)
+rland.genind
+
+rland.gtypes <- genind2gtypes(rland.genind)
+
+overallTest(rland.gtypes)
+pairwiseTest(rland.gtypes)
+
+
+
+#```
+
+
+
+

@@ -1,0 +1,1029 @@
+---
+title: "Analyzing MetaPopGen Results (analysis script V2)"
+author: "Jessie Berta-Thompson"
+date: "March 22, 2017"
+output: html_document
+---
+
+Purpose of this version, immediate tasks:
+incorporate real data into analysis, for comparison with simulated data.
+
+
+Real data, recently moved to:
+
+Copy_of_real_data_PhfoAllGenePop_13Dec2016.gen
+
+Q:\Research\All_Projects_by_Species\Phacelia SPECIES\Phacelia_formosula\Phacelia formosula_abiotic\Modelling\MetaPopGen\
+
+
+Simulation for practice calculations (for now):
+
+load in V8 data
+test_V8_test_3_6_17_parameters
+test_V8_test_3_6_17_results
+test_V8_test_3_9_17_popstat_results
+test_V8_test_3_15_17_multilocus_popstat_results
+
+run script for these pieces contained in:
+MetaPopGen_testing_V10_3_15_17
+
+testing_V8 actually used to run, testing_V9 and testing_V10 contain same run script but add analysis tools. Parameter set for this test run called "V8" throughout these files.
+
+overview of this practice dataset (V8)
+3 populations
+10,000 years
+10 replicates
+5000 kappa juvenile carrying capacity
+0.3 juvenile survival
+0.9 flowering survival
+2 age classes, 1 and 2 years, rosettes and flowering plants. 
+0.1 overall migration rate (0.05 exchanged between each pair)
+1e-5 mutation rate
+
+full details in files listed above.
+
+
+*************************************************************************************
+
+List here thoughts for future work as they come up:
+
+- write generic code for making print tables (e.g. tabs, padding ). some of this in Rmetasim code already
+
+- generalize pretty new plotting code (GGplot Fst) to take variables instead of fixed quantities
+
+- add real data to scripts, calculate same things in parallel, and add to plots
+
+- could additionally split into calculate stats and visualize stats.
+
+- add save for gtypes, not just output for tests
+
+- have replicates for multilocus - split reps into sets of 8. 
+ 
+- will require adjusting for reduced saving (not every timepoint) - sampling time in run not post processing.
+
+*************************************************************************************
+Set up: clear history and make sure you're in a good working directory (files will be generated), load program.
+```{r}
+rm(list=ls())
+getwd()
+```
+
+*************************************************************************************
+Load in real data
+
+Get the tools
+```{r}
+library(ade4)
+library(adegenet)
+```
+
+Get the file, reading with adegenet tools that take a genepop.gen file and make a genind object
+```{r}
+Real_data.genind <-read.genepop("Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/MetaPopGen/Copy_of_real_data_PhfoAllGenePop_13Dec2016.gen")
+
+#Note one odd error: "Duplicate individual names detected. Coercing them to be unique.""
+```
+
+Take a look.
+```{r}
+print(Real_data.genind)
+print(table(Real_data.genind$pop))
+print(Real_data.genind$strata)
+```
+
+Great! Now try calculations. 
+
+First off, need to map these site codes to the three putative species/site map - copy of a file that maps sites to speces here:
+Q:\Research\All_Projects_by_Species\Phacelia SPECIES\Phacelia_formosula\Phacelia formosula_abiotic\Modelling\MetaPopGen\Copy_of_Species_data.xlsx
+
+Gathering required information in this file here:
+
+Q:\Research\All_Projects_by_Species\Phacelia SPECIES\Phacelia_formosula\Phacelia formosula_abiotic\Modelling\MetaPopGen\Summary_of_real_data.xlsx
+
+Convert list of populations to list of species
+```{r}
+#grab that list of populations and convert to a vector for easy manipulation
+pop_vector <- as.character(Real_data.genind@pop)
+print(pop_vector)
+data.class(pop_vector)
+
+#how long?
+print(length(pop_vector))
+
+#Make a new empty vector to hold the species version of this
+species_vector <- character(length = length(pop_vector))
+print(species_vector)
+
+#make three character vectors with the mapping between species and populations
+scullyi <- as.character(c("HN", "HS", "F"))
+formosula <- as.character(c("CG", "D", "P","RN", "WS", "WA", "B", "V", "R", "AN", "AS"))
+gina_glenneae <- as.character(c("T"))
+
+#Loop through and perform mapping
+for (i in 1:length(pop_vector)) {
+  p <- pop_vector[i]
+  if (p %in% scullyi) {
+    species_vector[i] <- "s"}
+  else if (p %in% formosula) {
+    species_vector[i] <- "f"}
+  else if (p %in% gina_glenneae) {
+    species_vector[i] <- "g"}
+  else {
+    print("uhoh, population not found in library")
+  }
+}
+
+print(species_vector)
+
+#Make copies of the genind, and swap out the @pop factor for the species level designations. 
+real_data_by_pop.genind <- Real_data.genind
+real_data_by_species.genind <- Real_data.genind
+
+real_data_by_species.genind@pop <- factor(species_vector)
+
+print(real_data_by_species.genind)
+
+#looks like it worked. 
+
+```
+*************************************************************************************
+#Run some analyses on real data
+
+```{r}
+library(strataG)
+print(real_data_by_species.genind)
+print(real_data_by_species.genind$all.names)
+
+real_data_by_species.gtypes <- genind2gtypes(real_data_by_species.genind)
+
+print(real_data_by_species.gtypes)
+
+real_by_species_oT <- overallTest(real_data_by_species.gtypes, nrep=1000)
+real_by_species_pT<- pairwiseTest(real_data_by_species.gtypes, nrep=1000)
+
+```
+
+*************************************************************************************
+Load in simulation data
+
+```{r}
+#These first two are created by a Run script
+filepath1 <- "Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/MetaPopGen/test_V8_test_3_6_17_parameters.RData" 
+load(filepath1)
+
+filepath2 <- "Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/MetaPopGen/test_V8_test_3_6_17_results.RData" 
+load(filepath2)
+
+#Instead of loading previously calculated analysis results, run with more permutations
+
+#Code for loading old processed data files. 
+
+#These second ones are created in this script. Reload to save time when exploring. 
+#filepath3 <- "Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/MetaPopGen/test_V8_test_3_9_17_popstat_results.RData" 
+#load(filepath3)
+
+#filepath4  <- "Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/MetaPopGen/test_V8_test_3_15_17_multilocus_popstat_results.RData" 
+#load(filepath4)
+
+```
+
+**************************************************************************************
+
+Examine simulation output in rough terms - what shape is dataset?
+```{r}
+#Ns has dimensions [replicates * genotypes * demes * ages * times]
+print("dimensions of simulated dataset")
+print(c("replicates", "genotypes", "demes", "ages", "times"))
+print(dim(Ns))
+print(data.class(Ns))
+```
+
+
+**************************************************************************************
+Exploring slices of counts with plots - somewhat arbitrary warm up exercises.
+***Be sure to rename all these filenames first to avoid nonsense overwrites. 
+
+```{r}
+#plot
+#one rep, one genotype, one deme, one age class, all times
+jpeg("Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/MetaPopGen/MetaPopGen_testing_V8_Nind_rep1_geno1_deme1_rosettes.jpg", width=600, height=400, units="px")
+
+one_slice = Ns[1,1,1,1,]
+par(mar=c(5,10,5,5)) #bottom, left, top, right; default c(5, 4, 4, 2) + 0.1.
+plot(1:tmax,one_slice, ylab="Number of individuals for \n one replicate, one genotype, one deme, \n just rosettes", xlab="Years")
+lines(1:tmax,one_slice)
+dev.off()
+jpeg("Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/MetaPopGen/MetaPopGen_testing_V8_Nind_rep1_allgeno_deme1_rosettes.jpg", width=600, height=400, units="px")
+#sum over genotypes - rosettes
+par(mar=c(5,10,5,5)) #bottom, left, top, right; default c(5, 4, 4, 2) + 0.1.
+summed_genotypes <- lapply(1:tmax, function(t) {
+  all_genotypes <- Ns[1,,1,1,t]
+  sum(all_genotypes)}
+)
+plot(1:tmax, summed_genotypes, xlab="years", ylab="individuals of all genotypes,\n one replicate, one deme, rosettes only", ylim=c(0,1.1*max(unlist(summed_genotypes))))
+lines(1:tmax, summed_genotypes)
+dev.off()
+jpeg("Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/MetaPopGen/MetaPopGen_testing_V8_Nind_rep1_allgeno_deme1_flowers.jpg", width=600, height=400, units="px")
+#sum over genotypes, just flowering
+summed_genotypes <- lapply(1:tmax, function(t) {
+  all_genotypes <- Ns[1,,1,2,t]
+  sum(all_genotypes)}
+)
+par(mar=c(5,10,5,5)) #bottom, left, top, right; default c(5, 4, 4, 2) + 0.1.
+plot(1:tmax, summed_genotypes, xlab="years", ylab="individuals of all genotypes,\n one replicate, one deme, flowering only", ylim=c(0,1.1*max(unlist(summed_genotypes))))
+lines(1:tmax, summed_genotypes)
+dev.off()
+#just first replicate, built in global Fst over time.
+jpeg("Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/MetaPopGen/MetaPopGen_testing_V8_fst_global_metapopgen_builtin.jpg", width=600, height=400, units="px")
+#fst
+par(mar=c(5,10,5,5)) #bottom, left, top, right; default c(5, 4, 4, 2) + 0.1.
+plot(1:tmax, fst[1,], xlab="years", ylab="global fst\n (metapopgen)", ylim=c(0,1.1*max(unlist(fst[1,]))))
+lines(1:tmax, fst[1,])
+dev.off()
+
+```
+
+
+**************************************************************************************
+**By "running_V2" scripts, this is done before saving data. for earlier stuff (including this, still need to subsample here)
+
+Sample in time
+Subsample data to get a manageable population genetics dataset for calculations.Don't need to calculate everything for every year. For this 10,000 year dataset, 500 year intervals show pattern without taking too long for popgen calcs.
+```{r}
+#How many years between taking samples for analysis?
+interval <- 200 # sample every n years
+
+#build a list of sampling generations based on this interval.
+samplemid <- seq.int(interval, tmax-interval, interval)
+samplegens <- c(1, samplemid, tmax)
+print("Sampling times")
+print(samplegens)
+print(sprintf("Number of time samples: %s", length(samplegens)))
+
+```
+
+Sample organisms
+To get a manageable dataset for calculations and to match real data, subsample full dataset. First, convert relevant parts of results array, which contains number of individuals for a variety of categories, into matrix listing individuals with their properties. 
+
+The first step of this is mapping genotypes (a list 1-m long) to actual allele pairs for the (1-l) alleles. m = l(l-1)/2, the number of possible pairs of l alleles. This chunk creates a list m long containing the pairs of l alleles, in the order MetaPopGen uses. 
+
+```{r}
+# Map genotypes (ordered integers) to explicit pairs of alleles, the same way the program does. Creates 'genotypes', a vector with m genotypes made up of l alleles ordered the way the program maps allele pairs to genotype integers. 
+
+#all the possible alleles
+allele_options <- 1:l
+#all the genotypes (as integers)
+genotype_indices <- 1:m
+#initialize a vector to hold the list of allele pairs corresponding to each genotype
+genotypes <- vector(length=m)
+#initialize a vector to hold alleles after we're done with them in the loop, to avoid getting both "1-2" and "2-1" - only want unique pairs, half the matrix of comparisons
+done <- c()
+#initialize a count to keep track of which genotype we're on
+count <- 0
+#loop over all alleles (1/2 diploid options)
+for (one in allele_options) {
+  #loop over all alleles (2/2 diploid options)
+  for (two in allele_options) {
+    #if the second in the diploid pair hasn't already been completed...
+    if (!(two %in% done)) {
+      #make a new genotype between first and second
+      count <- count + 1
+      genotypes[count]<- paste(one, two, sep="-")
+      #print(paste("genotype", count, ": ", paste(one, two, sep="-")))
+    }
+  }
+  #For the next first allele, don't need to pair it with the last first allele again- tuck it away into done.
+  done[one] <- one
+}
+print(genotypes)
+#check that count = m
+print(sprintf("does number of recreated genotypes %s match genotypes %s?", count, m))
+
+```
+
+
+#Ok! now a function to take a single genotype * deme matrix from results, convert it into a list of individuals with properties, samples some of those individuals, and calculate strataG popgen stats overallTest and pairwiseTest
+
+Enter thoughtful choices for nsample (number of individuals to sample for each deme/population) and nrep within strataG commands - how many permutations for statistical tests. For real, should do 1000, for quick play sets, 100. 
+```{r}
+#Make a function that takes a matrix from MetaPopGen output genotypes * demes and creates overall/pairwise test lists
+
+#example input matrix
+# practice_flowers <- Ns[1,,,2,500] #one rep, all genotypes, all demes, just flowering, one timepoint, 55*3
+
+calc_pop_stats <- function(genodeme_matrix) {
+
+#figure out how many individuals to expect:
+#for each deme, sum over genotypes
+sum_over_genotypes <- sapply(1:n, function(x){
+  all_genotypes <- genodeme_matrix[,x]
+  sum(all_genotypes)
+})
+
+#then add up the demes
+total_pop <- sum(sum_over_genotypes)
+
+pops <- c()
+alleles <- c()
+
+count = 0
+for (deme in 1:n) {
+  for (geno in 1:m) {
+    flowers <- genodeme_matrix[geno,deme]
+    allelic_subvector <- rep(genotypes[geno], flowers)
+    pop_subvector <- rep(paste("pop", deme, sep=""), flowers)
+    pops <- c(pops, pop_subvector)
+    alleles<- c(alleles, allelic_subvector)
+}  
+}
+print(sprintf("length of vectors %s %s; length of dataset %s ", length(pops), length(alleles), total_pop))
+
+matrix <- matrix(c(pops, alleles), nrow= length(pops))
+
+#loop over demes and sample
+nsample <- 30 #per population, how many samples?
+sampled_matrix <- matrix(,nrow=0, ncol=2)
+for (deme in 1:n){
+  name <- paste("pop", deme, sep="")
+  rowstotake <- sample(which(matrix[,1] == name),nsample)
+  #take rows
+  subset <- matrix[rowstotake,]
+  sampled_matrix <- rbind(sampled_matrix, subset)
+}
+#get tools
+library(strataG)
+#add ids
+id_sampled_matrix <- cbind(1:length(sampled_matrix[,1]), sampled_matrix)
+
+#make 2 new vectors, splitting out alleles
+allele1 <- c()
+allele2 <- c()
+for (row in 1:length(id_sampled_matrix[,1])){
+  #print(id_sampled_matrix[row,3])
+  allele1[row] <- unlist(strsplit(id_sampled_matrix[row,3],"-"))[1]
+  allele2[row] <- unlist(strsplit(id_sampled_matrix[row,3],"-"))[2]
+  }
+
+fancy_sampled_matrix <- cbind(id_sampled_matrix[,1:2], allele1, allele2)
+
+sampled_gtypes <- df2gtypes(fancy_sampled_matrix, ploidy=2, id.col=1, strata.col=2, loc.col=3)
+print(sampled_gtypes)
+oT <- overallTest(sampled_gtypes, nrep=1000)
+pT<- pairwiseTest(sampled_gtypes, nrep=1000)
+output<- list(oT, pT)
+
+return(output)
+}
+```
+
+
+
+test function
+```{r}
+tester= Ns[1,,,2,500] #one rep, all genotypes, all demes, just flowering, one timepoint, 55*3
+
+testotpt <- calc_pop_stats(tester)
+
+
+```
+
+Implement a loop to run above function, calculating popgen stats for 30 flowerings plants from each population for all times and replicates. 
+```{r}
+
+popstats <- lapply(1:nrepl, function(x) {
+  onereplistovertime <- lapply(samplegens,function(t) {
+    calc_pop_stats(Ns[x,,,2,t]) # 2 means flowers - only sampling flowering plants. 
+  })
+}
+)
+
+filepath <- "Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/MetaPopGen/test_V8_analysis_3_22_17_51t_1000perm_popstat_results.RData" 
+save(popstats, file=filepath)
+#do call to get list of lists into array
+
+```
+
+**************************************************************************************
+Plot pairwise Fst over time, using loaded data from last week's calculations (above work - not run again)
+
+Examine loaded popgen calculations
+```{r}
+print(sprintf("Length of popstats list, also number of replicates %s:", length(popstats)))
+print("Length of lists in popstats list, also number of time samples taken:")
+print(lengths(popstats))
+print("Length of first rep, first time point - contains the two test run, overall and pairwise")
+print(length(popstats[[1]][[1]]))
+print("Lengths of test results, overall then pairwise:")
+print(lengths(popstats[[1]][[1]]))
+#print("Contents of pairwise test for last time sample, rep1")
+#print(popstats[[1]][[21]][[2]])
+#print("Data frame with results of particular interest for last time sample, rep1")
+#print(popstats[[1]][[21]][[2]]$result)
+print("Data frame with results of particular interest for last time sample, rep1")
+print(popstats[[1]][[21]][[2]]$result$Fst)
+print(popstats[[1]][[21]][[2]]$result$pair.label)
+```
+
+
+
+```{r}
+
+pw.labels <- do.call(c,lapply(1:10, function(r){
+  do.call(c,lapply(1:21, function(t){
+    popstats[[r]][[t]][[2]]$result$pair.label
+  }))
+}))
+
+pw.fst <- do.call(c,lapply(1:10, function(r){
+  do.call(c,lapply(1:21, function(t){
+    popstats[[r]][[t]][[2]]$result$Fst
+  }))
+}))
+
+pw.fst.pval <- do.call(c,lapply(1:10, function(r){
+  do.call(c,lapply(1:21, function(t){
+    popstats[[r]][[t]][[2]]$result$Fst.p.val
+  }))
+}))
+
+pw.year <- rep(do.call(c,lapply(1:21, function(t){
+    rep(samplegens[[t]],3)
+  })),10)
+
+
+pw.reps <- do.call(c,lapply(1:10, function(x) rep(x,21*3)))
+
+
+df.pwfst <- data.frame(Pairs = pw.labels,
+                       Fst = pw.fst,
+                       Pval = pw.fst.pval,
+                       Year = pw.year,
+                       Replicates = pw.reps)
+
+library(ggplot2)
+
+ggplot(df.pwfst, aes(Year,Fst, colour = Pairs))+
+  geom_line()+
+  facet_wrap(~Replicates)
+
+df.pwfst.mean <- aggregate(df.pwfst$Fst, list(PW = df.pwfst$Pairs, 
+                                              Year = df.pwfst$Year), mean)
+names(df.pwfst.mean)[3] <- "AvgFst"
+
+df.pwfst$U <- paste(df.pwfst$Pairs,df.pwfst$Replicates,sep=" ")
+
+ggplot()+
+  geom_line(data=df.pwfst, aes(Year,Fst,group=U, colour=Pairs))+
+ # facet_wrap(~Replicates)+
+  geom_line(data=df.pwfst.mean, size=2, aes(Year,AvgFst,group = PW, colour=PW))
+ggsave("MetaPopGen_test_V8_3_15_17_pairwise_fst.jpg")
+
+```
+
+
+
+
+************************************************************************************************************
+Our actual data is multilocus. More powerful for inferring patterns. If loci are unlinked (+ hardy-weinberg), and demography is the same between replicates (or close enough), MetaPopGen replicates are like different loci, according to original population. Treating replicates like loci, we could build multilocus datasets. We could have replicates of those sets if we just ran more; shows what sampling 8 out of a larger distribution does. For testing more stochastic demography down the road, could make sets with identical demography in units of 8 loci, then switch to different random demography for next 8. 
+
+Build a multilocus object from output of MetaPopGen with replicates.
+Each replicate becomes a locus, all the replicates get squished into one multilocus dataset.
+
+```{r}
+#Make a function that takes an array from MetaPopGen output at one time point, and builds a multilocus genetic data object
+
+#tools that might be helpful
+library(strataG)
+library(adegenet)
+
+# example input array: practice_flowers <- Ns[,,,2,500] 
+# all reps, all genotypes, all demes, just flowering, one timepoint
+# 3d object: reps * genotypes * demes
+
+# Function definition
+build_multigtypes <- function(allreps_onetime) { 
+  
+  # how many reps/loci?
+  nloci <- length(allreps_onetime[,1,1])
+  
+  # for each locus, dig into dataset and sample 30 individuals. 
+  samples_for_each_locus <-  lapply(1:nloci, function(locus) { 
+  # figure out how many individuals to expect per deme
+    sum_over_genotypes <- sapply(1:n, function(x){ #looping over demes
+      all_genotypes <- allreps_onetime[locus,,x] #for each deme, take all genotypes
+      sum(all_genotypes) #sum up list of individuals of all genotypes
+    })
+
+    # then add up the demes - total number of individuals in this replicate at this timepoint
+    total_pop <- sum(sum_over_genotypes)
+
+    # initialize vectors to hold population and alleles data
+    pops <- c()
+    alleles <- c()
+    
+    # populate these vectors so that each individual is assigned a population and an allele
+    # loop over demes, loop over genotypes
+    for (deme in 1:n) {
+      for (geno in 1:m) {
+        flowers <- allreps_onetime[locus,geno,deme] #number of flowers of certain locus, genotype, and deme
+        allelic_subvector <- rep(genotypes[geno], flowers)#allele list for flowers in one genotype and deme
+        pop_subvector <- rep(paste("pop", deme, sep=""), flowers)#population assignments for those flowers
+        pops <- c(pops, pop_subvector) #add new one to preexisting one
+        alleles<- c(alleles, allelic_subvector)#add new one to preexisting one
+      }  
+    }
+    #make sure dimensions of alleles/pop assignment vectors match expected and eachother
+    print(sprintf("len vectors %s %s; len dataset %s ", length(pops), length(alleles), total_pop))
+    
+    # combine these two vectors into a matrix (they are the same length - two columns)
+    full_matrix <- matrix(c(pops, alleles), nrow= length(pops))
+    
+    #loop over demes and sample nsample individuals from each deme (probably 30 to match real)
+    nsample <- 30 #per population/deme, how many flowers to sample?
+    #initialize an empty matrix with 2 columns for pop and allele of each sampled individual
+    sampled_matrix <- matrix(,nrow=0, ncol=2)
+    for (deme in 1:n){#for each deme/population...
+      name <- paste("pop", deme, sep="") #which population are we on?
+       #for rows of data matrix where first column (pops) matches the pop we're on, randomly sample 30 rows
+      rowstotake <- sample(which(full_matrix[,1] == name),nsample)
+      #take the rows based on randomly sampled indices
+      subset <- full_matrix[rowstotake,] #take all columns for sampling rows.
+      sampled_matrix <- rbind(sampled_matrix, subset) #add this deme's haul to the growing sampled matrix
+    }
+
+    #add ids, counting from start of sampled matrix.
+    id_sampled_matrix <- cbind(1:length(sampled_matrix[,1]), sampled_matrix)
+
+    #make 2 new vectors, splitting out alleles for this locus
+    allele1 <- c()
+    allele2 <- c()
+    for (row in 1:length(id_sampled_matrix[,1])){
+      #print(id_sampled_matrix[row,3])
+      allele1[row] <- unlist(strsplit(id_sampled_matrix[row,3],"-"))[1]
+      allele2[row] <- unlist(strsplit(id_sampled_matrix[row,3],"-"))[2]
+    }
+
+    split_sampled_matrix <- cbind(id_sampled_matrix[,1:2], allele1, allele2) #ids, pops, allele1, allele2
+    return(split_sampled_matrix)
+    })
+  
+  #combine list of sample matrices for each locus into a single dataframe in correct format
+  #ids and pops don't change, initialize matrix with those
+  first_matrix <- samples_for_each_locus[[1]]
+  growing_matrix <- first_matrix[,1:2]
+  #take first two cols from first example (same for all)
+  for (locus in 1:nloci) {
+    current_matrix <- samples_for_each_locus[[locus]]
+    just_alleles <- current_matrix[,3:4]
+    growing_matrix <- cbind(growing_matrix,just_alleles)
+  }
+  
+  sampled_gtypes <- df2gtypes(growing_matrix, ploidy=2, id.col=1, strata.col=2, loc.col=3)
+  print(sampled_gtypes)
+  oT <- overallTest(sampled_gtypes, nrep=100)
+  pT<- pairwiseTest(sampled_gtypes, nrep=100)
+  output<- list(oT, pT)
+return(output)
+}
+
+```
+
+
+test multilocus function
+```{r}
+tester= Ns[,,,2,500] #all reps, all genotypes, all demes, just flowering, one timepoint
+test_multilocus_builder <- build_multigtypes(tester)
+print(test_multilocus_builder)
+```
+
+
+implement a loop over time, squashing replicates at each time into multilocus datasets.
+```{r}
+
+multilocus_over_time <- lapply(samplegens,function(t) {
+    build_multigtypes(Ns[,,,2,t])
+  }) 
+
+filepath <- "Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/MetaPopGen/test_V8_test_3_15_17_multilocus_popstat_results.RData" 
+save(multilocus_over_time, file=filepath)
+#load(filepath) #to load saved results. 
+#do call to get list of lists into array
+
+
+```
+
+*************************************************************************************
+Plot multilocus results. 
+
+loaded from yesterday's from yesterday's calculations
+
+Examine loaded multilocus popgen calculations
+```{r}
+print(sprintf("Length of multilocus pop stats list, also number of time steps sampled %s:", length(multilocus_over_time)))
+print("Length of lists in multilocus pop stats list, also number of tests run:")
+print(lengths(multilocus_over_time))
+print("Checkout first timepoint, first test (overall)")
+print(multilocus_over_time[[1]][[1]])
+print("Checkout first timepoint, second test (pairwise)")
+print(multilocus_over_time[[1]][[2]])
+
+print("Data frame with results of particular interest for last time sample")
+print(multilocus_over_time[[21]][[2]]$result$pair.label)
+print(multilocus_over_time[[21]][[2]]$result$Fst)
+
+```
+
+For multilocus data, plot strataG Fst pairwise over time. 
+Later will add back replicate layer, for replicates of multilocus.
+```{r}
+nt <- length(samplegens) #total number of time samples
+
+#get pairwise comparison labels: which populations are being compared, ordered same as results themselves.
+ml.labels <- do.call(c,lapply(1:nt, function(t){
+    multilocus_over_time[[t]][[2]]$result$pair.label
+  }))
+
+ml.fst <- do.call(c,lapply(1:nt, function(t){
+    multilocus_over_time[[t]][[2]]$result$Fst
+  }))
+
+ml.fst.pval <- do.call(c,lapply(1:nt, function(t){
+    multilocus_over_time[[t]][[2]]$result$Fst.p.val
+  }))
+
+ml.year <- do.call(c,lapply(1:nt, function(t){
+    rep(samplegens[[t]],3)}))
+  
+
+ml.pwfst <- data.frame(Pairs = ml.labels,
+                       Fst = ml.fst,
+                       Pval = ml.fst.pval,
+                       Year = ml.year)
+
+library(ggplot2)
+
+ggplot(ml.pwfst, aes(Year,Fst, colour = Pairs))+
+  geom_line()+
+ggtitle("10 replicate simulations treated as 10 loci:\n multilocus strataG pairwise Fst analysis")
+
+ggsave("MetaPopGen_analysis_V1_3_16_17_pairwise_fst_10reps_as_10loci_multilocus_analysis.jpg", width=6, height=4, units="in", dpi=300)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+just rough notes and leftovers i'm not quite ready to delete after this.
+**************************************************************************************
+
+Print statements in below section too big for full dataset, but looping patterns and calculations might be useful.
+```{r}
+#summarize population for a snapshot
+for (d in 1:n) { 
+  #for a subset of times:
+  for (tp in samplegens){
+  year = Ns[1,,d,,tp] #everything for time tp and deme d replicate 1 (all genotypes and ages)
+  print(sprintf('Year %s, deme %s, average number of individuals per genotype for 2 age classes',tp, d))
+  print(apply(year, 2, mean)) #calculate the mean individuals across genotypes - dimension 2 of genotype vs age matrix
+}
+}
+
+#summarize 
+for (d in 1:n) { 
+  #for a subset of times:
+  for (tp in samplegens){
+  year = N[,d,,tp] #everything for time tp and deme d
+  print(sprintf('Year %s, deme %s',tp, d))
+  print("total individuals")
+  print(apply(year, 2, sum))
+  }
+}
+
+#One deme, all years
+  for (tp in 1:tmax){
+  year = N[,d,,tp] #everything for time tp and deme d
+  print(sprintf('Year %s, deme %s',tp, d))
+  print("total individuals")
+  print(apply(year, 2, sum))
+}
+
+```
+
+
+
+library(adegenet)
+ rland.df <- data.frame(replist[[r]][[2]][t]) #df from one rland$individuals 
+    alleles <- seq(7,length(rland.df)-1,2) # Combine alleles per locus to format for what genind wants
+    rland.2genind <- sapply(alleles, function(x){paste(rland.df[,x], rland.df[,x+1], sep = "-")})
+    #label populations
+    rland.df$pop <- "pop3"
+    rland.df$pop[rland.df$X1 < 8] <- "pop2"
+    rland.df$pop[rland.df$X1 < 4] <- "pop1"
+    #Make a genind object
+    print("building genind")
+    rland.genind <- df2genind(rland.2genind, pop = rland.df$pop, type = "codom", sep="-")
+    return(rland.genind)})
+    return(one_reps_geninds_over_time)})
+
+
+
+```
+
+
+
+
+
+
+Kappa: after everything else, perhaps at same time as Age class 1 & 2 remaining after survival moves up a class to 2&3 (and class3 disappears) , newly created class 1 individuals fill in empty class 1, sampling from individuals produced during reproduction to level allowed by kappa. from paper: "Number of recruits tends assymptotically to" kappa. Probably sets of stable conditions if number of offspring exceeds kappa. Hurts noisiness of data (but still sampling a binomial)
+
+
+******************************************************************
+Next Question:
+How to get alleles from genotypes?
+Mutation happens at level of l (# alleles), and alleles are combined to create genotypes (pairs of alleles), but the data is in the form of just genotype, not clear which genotypes share alleles, which are homo/heterzygotes. 
+
+Documentation of example "FourPopMonoecious" includes lines defining order of genotypes.
+
+barplot(N1[,,1],names.arg=c("1","2","3","4"),xlab="Deme",ylab="Number of age-1 individuals",col=colours)
+lg.txt <- c("A1A1", "A1A2", "A1A3", "A1A4", "A2A2", "A2A3", "A2A4", "A3A3", "A3A4", "A4A4")
+legend(-1,1500,lg.txt,fill=colours,ncol=5,bty="n")
+
+barplot(N[,,2,dim(N)[4]],names.arg=c("1","2","3","4"),xlab="Deme",ylab="Number of age-2 individuals",col=colours)
+lg.txt <- c("A1A1", "A1A2", "A1A3", "A1A4", "A2A2", "A2A3", "A2A4", "A3A3", "A3A4", "A4A4")
+legend(0.2,600,lg.txt,fill=colours,ncol=5,bty="n")
+
+And even easier to understand, elsewhere in this example they state it:
+
+"If there are two alleles, say A1 and A2, there will be three genotypes; the order in which they are stored in N1 is as follows: A1A1, A1A2 and A2A2. If there are three alleles (A1, A2 and A3), the order is: A1A1, A1A2, A1A3, A2A2, A2A3, A3A3. With four alleles, the order is: A1A1, A1A2, A1A3, A1A4, A2A2, A2A3, A2A4, A3A3, A3A4, A4A4. So with four alleles N[6,1,3] gives the number of A2A4 individuals in deme 1 that are of age 3."
+
+******************************************************************
+
+******************************************************************
+
+******************************************************************
+Next Question:
+How should i assign life cycle stages to these yearly age classes?
+
+Age 1 = sprouts (mini rosettes, recruited seeds)
+Age 2 = flowering plants (reproductive)
+
+-----T = 1 starting conditions
+
+Survive:
+some sprouts don't survive (this means they won't move up to flower)
+some flowering plants don't survive (this means they won't produce seed)
+
+Reproduce:
+Only flowering plant class 2 reproduces, but they make a lot of pollen and many ovules (ovules sets amount of seed)
+
+Recruit:
+A density dependent amount of seed actually sprouts (can't exceed carrying capacity)
+Last year's flowers fall off the map
+Last year's sprouts move up to flowering.
+
+-----T = 2 make another count at this point
+
+******************************************************************
+
+******************************************************************
+
+******************************************************************
+Next Question:
+How can I calculate popgen stats from the output of this program?
+
+Built-in tools:
+
+##genotype.index(l)
+
+Give the number of alleles, it shows you the genotype number (index along genotype axis of N matrix) for each combination of alleles. useful for translating between data matrix and actual allelic data.
+
+```{r}
+genotype_indices = lapply(2:10, genotype.index)
+
+for (i in 1:length(genotype_indices)){
+  print(genotype_indices[i])
+}
+
+```
+
+
+### create.dispersal.matrix(x,a,longlat = True)
+There is an option to input a matrix of spatial data x = lat/lon matrix; row denotes points, first column longitude, second column latitude (where are your demes), output distance-dependent migation rates. 
+
+##freq.all(N)
+input number of individuals of each genotype (N[,1,1,1])
+```{r}
+#for deme 1, age 1
+print(freq.all(N[,1,1,1])) #starting frequences of A1, A2 and A3
+print(freq.all(N[,1,1,5])) #ending frequencies
+
+#slicing question, can I get a few at once?
+print(freq.all(N[,,,5])) #all demes and all age classes
+#no! this makes no sense - more frequencies listed than alleles. 
+#will require some slicing and squishing in different ways. 
+#how many total genotypes?
+print(dim(N))
+```
+
+
+## fst.global.monoecious
+## fst.global.dioecious
+Compute Fst between two groups of individuals (dioecious or mono)
+
+fst.pairwise.monoecious(N,i,j,xi,xj,ti,tj)
+fst.pairwise.monoecious(folder.name,i,j,xi,xj,ti,tj)
+
+N	
+A 4-D array (ex: N[k,i,x,t]) of length c(m,n,z,T_max) giving the number of individuals of genotype k, age x in deme i at time t. Typically, the output of the function sim.metapopgen.monoecious
+folder.name	
+Character string giving the name of the folder where the results of sim.metapopgen.monoecious are saved, when this function is used with the argument save.res set to TRUE.
+i, xi, ti	
+Identifiers of the first group of individuals: it specifies the individuals of deme i, age xi at time ti
+i, xi, ti	
+Identifiers of the second group of individuals: as above.
+
+
+
+```{r}
+print(dim(N))
+fst.pairwise.monoecious(N,1,2,2,2,5,5) #compare time 5, age 2, Deme 1 vs 2.
+tmax = 5
+# Temporal evolution of fst
+fst <- array(NA,dim=c(3,5))
+for (t in 1 : tmax) {
+for (deme in 1 : 3){
+fst[deme,t] <- fst.pairwise.monoecious(N,1,(deme+1),1,1,t,t)
+}
+}
+plot(c(1:tmax),fst[1,],type="l",col="blue",xlab="Year",ylab="Fst")
+matplot(c(1:tmax),fst[2,],type="l",col="darkgreen",add=T)
+matplot(c(1:tmax),fst[3,],type="l",col="red",add=T)
+legend(30,1,c("1 vs 2","1 vs 3","1 vs 4"), col = c("blue", "darkgreen", "red"),lty=1)
+
+```
+
+So, to get more, we'll need to make a function that converts this object into genind
+
+Individual = row
+Each row assigned to a population
+plus the data column, the locus, with allele assignments
+
+1-2
+
+dig up old code for making genind, figure out how to extract right kinds of data, and modify.
+
+#for each timepoint there will be one dataset.
+N = genotypes * demes * age * time
+
+```{r}
+#results <- vector("list", n) #make list of defined size
+demecount = 4
+tmax = 5
+for (i in 1:tmax) {#each timepoint a different popgen dataset
+  dataset <- N[,,2,i] #within each deme, only look at flowering individuals
+  #print(sprintf("For time %s, flowering plants only, genotypes vs. deme", i))
+  #print(dataset)
+  for (j in 1:demecount){ #go through deme list
+    print(sprintf("For time %s deme %s, flowering plant genotype counts", i,j))
+    print(N[,j,2,i])
+    genotype_vector <- N[,j,2,i]
+    print("Length of genotype vector")
+    print(length(genotype_vector))
+    print("Sum of genotype vector individuals counts = number of flowering plants in deme")
+    print(sum(genotype_vector))
+    print(data.class(genotype_vector))
+    genotypes = 6
+    deme_list <- list()
+    ind_count = 0
+    for (g in 1:genotypes) {
+      geno_count <- N[g,j,2,i] #this many of this type
+      if(geno_count != 0) {
+        for (ind in 1:geno_count) {
+          deme_list[length(deme_list)+1] <- g
+          ind_count = ind_count + 1
+      }
+        }
+    }
+    print(ind_count)
+    print(length(deme_list))
+
+      
+    }
+  }
+  
+#Next step sample 30 individuals per deme, then in an outer loop be building for each timepoint (data vector) (deme label vector) in as close to format for genind as possible. build these lists into a bigger list convert to 1-1 notation.
+ 
+
+  
+  
+```
+
+
+#Pop stats with sampling from Rmetasim work
+```{r}
+library(adegenet) # multivariate genetic data analysis
+library(strataG)  # summaries and population structure analyses of genetic data
+
+sampled_genind_lol<- lapply(1:nreps, function(r) {# loop over replicates
+  sampled_genind_list_over_time<-lapply(1:length(replist[[r]][[2]]), function(t){# loop over matrices 
+    print(sprintf("Working in replicate %s, time %s", r, t))
+    rland.df <- data.frame(replist[[r]][[2]][t]) #convert one individuals matrix to dataframe format
+    #reformat allele data (pairs by locus)
+    alleles <- seq(7,length(rland.df)-1,2) # in rland$individuals, alleles start at 7, go to end, pair at each locus side by side
+    rland.2genind <- sapply(alleles, function(x){
+      paste(rland.df[,x], rland.df[,x+1], sep = "-")}) # Combine alleles per locus with '-' for genind
+    #convert to data frame to match the other one.
+    rland.2genind <- data.frame(rland.2genind)
+    ### For debugging: 
+    print("Dimensions of full rland.df (rxc):")
+    print(dim(rland.df))
+    print("Dimensions of full rland.2genind (rxc):")    
+    print(dim(rland.2genind))
+
+    #label with populations [subpopulations 0, 1, 2, 3 = pop1, 4, 5, 6, 7 = pop2, 8, 9, 10, 11 = pop3]
+    rland.df$pop <- "pop3"
+    rland.df$pop[rland.df$X1 < 8] <- "pop2"
+    rland.df$pop[rland.df$X1 < 4] <- "pop1"
+    
+    #sample just flowering plants from each population: 3, 7, and 11s for 3 populations with 4 age classes in each.
+    flowers <- c(3,7,11)
+    #sample at random, n individuals per population.
+    n <- 30 #number of samples to take. will sample exactly that many - doesn't bother if fewer than 30 flowers.
+    sample_rows <- lapply(flowers, function(x){ #loop through flower pops to create sample list.
+      n_pop <- length(rland.df$X1[rland.df$X1 == x]) #count the number of instances of given population x. X1 contains pop id (3, 7, 11)
+      print(sprintf("population %s contains %s plants", x, n_pop))
+      if (n_pop>=n) {
+        print(sprintf("enough plants in population %s to sample target %s individuals!",x,n ))
+        rowstotake <- sample(which(rland.df$X1 == x),n) #sample at random 30 items from the indices of rows in correct pop
+      }
+      else{
+        print(sprintf("not enough plants in population %s to sample target %s individuals: returning NULL",x,n ))
+        rowstotake <- NULL
+      }
+      return(rowstotake)
+      })    
+     print(sample_rows) #this is a list of lists
+    rows <- do.call(c,sample_rows) #this collapses list of lists into a single vector.
+    #this doesn't have special case handling when all three are below 30 - ignore for now, but could be a problem.
+    print(rows)
+    #apply sampling to two data frames
+    samp.rland.2genind <- rland.2genind[rows,] # sample genind-style data (just alleles) for the sample rows, all columns
+    samp.rland.df <- rland.df[rows,]
+
+    ### For debugging: 
+    print("Dimensions of samp.rland.2genind (rxc):")
+    print(dim(samp.rland.2genind))
+    print("Dimensions of samp.rland.df (rxc):")    
+    print(dim(samp.rland.df))
+    
+    #convert to genind for downstream analyses
+    samp.rland.genind <- df2genind(samp.rland.2genind, pop = samp.rland.df$pop, type = "codom", sep="-") #error occurs here - size mismatch
+       return(samp.rland.genind)})
+    return(sampled_genind_list_over_time)})
+```
+
+
+#bit of code that might be useful, principle of looping through data structure
+```{r}
+		
+		for (deme in 1 : n){ #loop over demes
+		  for (genotype in 1 : m) { #loop over genotypes
+				for (age in 1 : z) { #loop over age classes
+          if (age == 1) {
+					  N1[genotype,deme,age] <- 30 
+          }
+					else if (age == 2) {
+					  N1[genotype,deme,age] <- 20
+					}
+					}
+				}
+			}
+
+```
+
+
+
+#snippet from examples comparing modeled and expected Fst
+# we want to do this, but example was a little too specific to case.
+```{r}
+# Mean and standard deviation of FST
+mean(fst[,3:tmax]) # because reached stable Fst after ca n generations?
+sd(fst[,3:tmax])
+
+# Expected value for FST
+Ne <- 6*(30 + 15 + 7.5) #each deme starting size 10 + 20 + 30, Kappa 180 limit to incoming.
+#per genotype (of 6) 30 - 15 - 7.5 
+m.m <- 0
+fst.exp <- 1/(1 + 4 * Ne * (m.m))
+```
+
+
+

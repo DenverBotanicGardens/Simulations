@@ -1,0 +1,203 @@
+---
+title: "Subsample Phacelia data to estimate sensitivity to sample size: run a few at a time and save: forward "
+author: "Jessie Berta-Thompson"
+date: "May 16, 2017"
+output: html_document
+---
+
+Purpose of this version, immediate tasks:
+
+ - subsample phacelia data to take samples of different sizes (2-30), then run strataG Fst. 
+ 
+ - sample without replacement (real subsamples)
+ 
+ - run some in order, some in reverse order, hope they cross.
+ 
+  - a laptop is running 2-30; leave 30-2 on the big computer. hopefully they'll get done somehow.
+  
+  - first attempt at this had a mistake in the saving function. fixed here.
+
+
+*************************************************************************************
+Set up: clear history and make sure you're in a good working directory. 
+Gather tools (reading and converting popgen data, running popgen calculations)
+```{r}
+rm(list=ls())
+print("Where are we? Where will new files without specified full path be created?")
+getwd()
+setwd("Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/Subsampling")
+library(ape)
+library(phangorn)
+library(ade4)
+library(adegenet)
+library(apex)
+library(strataG)
+```
+*************************************************************************************
+
+#Load in the 1000 randomly sampled datasets each for alternate sample sizes (2, 3, 4, 5, 6, 7, 8 ...28, 29, 30). This file is big. loading it takes a minute.
+The script that made this is copied at the bottom of this document.
+
+```{r}
+load("Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/Subsampling/29x1000_geninds_subsampled_by_location_2-30n_5_8_17.RData")
+```
+
+Then start popgen calculations for n=2 to n=30 (1st through 29th sizes)
+```{r}
+# Set up some variables that will come in handy
+sampling_options <- c(2:30) #various sample sizes to explore; 30 is boring - all samples will be the same.
+bootreps <- 1000 # for each sample size, how many replicates datasets to create
+
+#For time's sake, only run Fst pairwise calculations.
+t0 <- Sys.time() #start time for whole procedure
+#loop over different sample sizes
+
+for (i in 17:length(sampling_options)) { #go in order
+  n <- sampling_options[i] #because samples go from 2-30, index is not n.
+  #loop over replicate random sampling efforts
+  thousandreps <- lapply(1:bootreps, function(b) {
+    ts <- Sys.time() #start time for this n
+    one.genind <- sample_set[[i]][[b]]
+    one.gtypes <- genind2gtypes(one.genind)
+    pT <- pairwiseTest(one.gtypes, stats=c("Fst"), nrep=1000)
+    tf <- Sys.time()
+    print(sprintf("Done with rep %s of %s for n = %s, which took %s minutes. %s hours since start.", b, bootreps, n, format(as.numeric(tf-ts,units="mins"), digits=3), format(as.numeric(tf-t0,units="hours"), digits=3)))
+    
+  return(pT) #lapply over replicates returns a list of Fst results
+  })
+  
+  #make a file to save just this n as a unique file
+  filepath <- paste("Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/Subsampling/",n, "n_fwd_Fst_calcs_subsample_1000x_by_location_5_24_17.RData", sep="") 
+  save(thousandreps, file=filepath)
+}
+
+```
+
+
+
+
+
+
+
+
+
+
+##Appendix *****************************************************************
+
+
+#This script made the subsampled datasets (no need to run again, took a few minutes)
+
+Step 1. Get the Phacelia microsatellite data
+
+Read in the real data file (adegenet tools that take a genepop.gen file, make a genind object)
+```{r}
+real_data_by_loc.genind <-read.genepop("Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/Subsampling/Copy_of_real_data_PhfoAllGenePop_13Dec2016.gen")
+
+#Note one error message: "Duplicate individual names detected. Coercing them to be unique." This is because .gen file has no individual names, just a list of genotypes, but genind requires individual names. They are given numbers, in order of original file.
+```
+
+
+Make 1000 randomly sampled datasets each for alternate sample sizes (2, 3, 4, 5, 6, 7, 8 ...28, 29, 30)
+
+```{r}
+
+sampling_options <- c(2:30) #various sample sizes to explore; 30 is boring - all samples will be the same.
+bootreps <- 1000 # for each sample size, how many replicates datasets to create
+
+#convert data into a dataframe for easy sampling (individual x locus, entries allele)
+ind_locus_table.df <- genind2df(real_data_by_loc.genind, sep="-", pop = real_data_by_loc.genind$pop, usepop = FALSE)
+#keep the population membership for each individual in a parallel list
+poplist <- real_data_by_loc.genind$pop
+#size of each sites' sampling effort as a vector
+popcounts <- as.numeric(table(poplist))
+#just the names of the sites (in same order as their counts above)
+popnames <- names(table(poplist))
+#total number of sites
+npop <- length(popnames)
+
+
+#loop over all the sizes of samples you want to make
+sample_set <- lapply(sampling_options, function(samplen) {
+  print(sprintf("Working on samples of %s", samplen))
+  #loop over 1000 bootstrap replicates
+  onethousanddatasets <- lapply(1:bootreps, function(bootrep) {
+    #loop over 15 sites
+    subsamples_by_site <- lapply(1:npop, function(p){
+      #which site are we on?
+      name <- popnames[p]
+      #how many samples were originally taken there?
+      n <- popcounts[p]
+      if(n>=samplen) { # if there are enough real samples to subsample to desired level
+        take <- samplen
+      }
+      else if (n<samplen){ # for the small number of samples with less than 30, just take max possible
+        take <-n
+      }
+      #sample at random 'take' row indices, from the correct population.
+      resampled_rows <- sample(which(poplist== name), take, replace = FALSE)
+      #take rows from the data table and from population list based on sample
+      subsetdata <- ind_locus_table.df[resampled_rows,]
+      subsetpops <- poplist[resampled_rows]
+      return(list(subsetdata, subsetpops)) #for each population, returns a list with 2 things. first is a data with some popgen data, second is a character vector of same length as number of rows in dataframe, containing population assignments. contains 1 sample dataset, sampling from all 15 populations.
+    })
+
+    #extract information output of list of lists constructed for this sample dataset
+    resampleddatalist <- lapply(subsamples_by_site, function(sublist) {
+      sublist[[1]]
+    })
+    resampledpoplist <- lapply(subsamples_by_site, function(sublist) {
+      sublist[[2]]
+    })
+    
+
+    resampled.df <- do.call("rbind", resampleddatalist) #make a list of dataframes into one dataframe
+    resampledpops <- unlist(resampledpoplist) #make a list of lists into one vector
+
+    #put back into a genind.
+    reconvert.genind <- df2genind(resampled.df, sep="-", pop = resampledpops, ploidy=2, type="codom")
+    print(sprintf("Done building subsampled dataset %s of %s for sample size n = %s", bootrep, bootreps, samplen))
+    return(reconvert.genind) #output is one dataset, sampled at samplen level or max. 
+})
+#for each sample size, return many subsampled datasets
+return(onethousanddatasets)
+})
+
+```
+
+briefly check out product properties and slicing, then save
+
+```{r}
+print("Full Sample set")
+print(data.class(sample_set))
+print(length(sample_set))
+
+print("One item in sample set: represents one sample size")
+print(sprintf("Sample size n = %s",sampling_options[1]))
+print(data.class(sample_set[[1]])) #need double brackets - weird list in list.
+print(length(sample_set[[1]])) #this thing is a list of 1000 datasets
+
+print("One item from the list of 1000 datasets for each sample size")
+print(data.class(sample_set[[1]][[1]])) # a single genind object is accessed like this.
+print(length(sample_set[[1]][[1]])) 
+print(sample_set[[1]][[1]])
+print("sampling scheme for n = 2, first replicate")
+print(table(sample_set[[1]][[1]]$pop)) 
+
+print("sampling scheme for n = 28, 736th replicate")
+print(table(sample_set[[27]][[736]]$pop)) 
+
+print("data for n = 4, first replicate")
+print(sample_set[[3]][[1]]$tab[1:10, 1:7]) #10 individuals, looking at first 7 alleles 
+print(sample_set[[3]][[500]]$pop[1:10])
+
+print("data for n = 4, 500th replicate")
+print(sample_set[[3]][[500]]$tab[1:10, 1:7])
+print(sample_set[[3]][[500]]$pop[1:10])
+
+#individuals' nicknames are still original, so you can see, ind. 1-16 are from HN. 
+
+
+filepath <- "29x1000_geninds_subsampled_by_location_2-30n_5_8_17.RData" 
+save(sample_set, file=filepath)
+```
+

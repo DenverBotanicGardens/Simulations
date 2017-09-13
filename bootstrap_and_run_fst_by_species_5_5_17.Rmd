@@ -1,0 +1,259 @@
+---
+title: "bootstrap resampling of phacelia dataset: 5-5-2017"
+author: "Jessie Berta-Thompson"
+date: "May 5, 2017"
+output: html_document
+---
+
+Yesterday's script is running Fst calculations on bootstrapped datasets separated by sampling location (15 categories): subsample_and_run_popgen_V1_5_4_17.Rmd
+
+Copy much of that work here, and perform the same calculations for data sorted by species (3 categories): resample data, with replacement, with name number of samples as actually taken for each species, then run strataG Fst calculations on each.
+
+
+*************************************************************************************
+## Set up
+Clear history and make sure you're in the right working directory for shorter file writes. 
+Gather tools (reading and converting popgen data, running Fst calculations)
+```{r}
+rm(list=ls())
+print("Where are we? Where will new files without specified full path be created?")
+getwd()
+library(ape)
+library(phangorn)
+library(ade4)
+library(adegenet)
+library(apex)
+library(strataG)
+```
+
+
+*************************************************************************************
+Step 1. Get the Phacelia microsatellite data
+
+Read in the data (adegenet tools take a genepop.gen file, make a genind object)
+```{r}
+Real_data.genind <-read.genepop("Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/Subsampling/Copy_of_real_data_PhfoAllGenePop_13Dec2016.gen")
+
+#Note one error message: "Duplicate individual names detected. Coercing them to be unique." This is because .gen file has no individual names, just a list of genotypes, but genind requires individual names. They are given numbers, in order of original file.
+```
+
+Take a quick look at the genind object
+```{r}
+print("Real data genind (by sampling population)")
+#print on whole object gives an overview
+print(Real_data.genind)
+
+#number of samples per location
+print(table(Real_data.genind$pop))
+
+#the 12 loci and their alleles?
+print(Real_data.genind$all.names)
+
+#for each individual (rows), the number of each allele of each locus
+print(Real_data.genind$tab[1:15,1:5])
+```
+
+This is one way of organizing the data - by sampling location, but today we will also be working at the species level, so  we need to map these site codes to the three putative species across the site map - copy of a file that maps sites to species lives here:
+Q:\Research\All_Projects_by_Species\Phacelia SPECIES\Phacelia_formosula\Phacelia formosula_abiotic\Modelling\MetaPopGen\Copy_of_Species_data.xlsx
+
+Gathering required information in this file here:
+Q:\Research\All_Projects_by_Species\Phacelia SPECIES\Phacelia_formosula\Phacelia formosula_abiotic\Modelling\Subsampling\Summary_of_real_data.xlsx
+
+Convert list of populations describing individuals to a list of species
+```{r}
+#grab that list of populations and convert to a vector for easy manipulation
+pop_vector <- as.character(Real_data.genind@pop)
+
+#how long?
+print("population vector")
+print(length(pop_vector))
+data.class(pop_vector)
+print(pop_vector)
+
+#Make a new empty vector to hold the species version of this
+species_vector <- character(length = length(pop_vector))
+
+#make three character vectors with the mapping between species and populations
+scullyi <- as.character(c("HN", "HS", "F"))
+formosula <- as.character(c("CG", "D", "P","RN", "WS", "WA", "B", "V", "R", "AN", "AS"))
+gina_glenneae <- as.character(c("T"))
+
+#Loop through and perform mapping
+for (i in 1:length(pop_vector)) {
+  p <- pop_vector[i]
+  if (p %in% scullyi) {
+    species_vector[i] <- "s"}
+  else if (p %in% formosula) {
+    species_vector[i] <- "f"}
+  else if (p %in% gina_glenneae) {
+    species_vector[i] <- "g"}
+  else {
+    print("uhoh, population not found in library")
+  }
+}
+#how long?
+print("species vector")
+print(length(species_vector))
+data.class(species_vector)
+print(species_vector)
+
+#Make copies of the genind, and swap out the @pop factor for the species level designations. 
+real_data_by_loc.genind <- Real_data.genind #more accurate name
+real_data_by_species.genind <- Real_data.genind
+
+real_data_by_species.genind@pop <- factor(species_vector)
+
+#Species-based genind
+print("Species-based genind")
+print(real_data_by_species.genind)
+print(table(real_data_by_species.genind$pop))
+
+```
+
+
+Build the bootstrapped dataset by resampling from the data organized by species
+```{r}
+#how many datasets to build?
+bootreps <- 1000
+
+#list with species designation for each individual
+poplist <- real_data_by_species.genind$pop
+
+#numeric vector with individual counts for each species
+popcounts <- as.numeric(table(poplist))
+
+#character vector - just the species names/designations
+popnames <- names(table(poplist))
+
+#how many species categories are there?
+npop <- length(popnames)
+
+#Create the bootstrap datasets
+onethousanddatasets_by_species <- lapply(1:bootreps, function(bootrep) {
+  
+#convert genind to dataframe, where the rows are individuals, the columns are loci, and the entries are alleles.
+ind_locus_table.df <- genind2df(real_data_by_species.genind, sep="-", pop = real_data_by_species.genind$pop, usepop = FALSE)
+
+#the population assignment data lives in poplist object defined above, not in this dataframe.
+
+#perform randome resampling, for each category (species)
+listresults <- lapply(1:npop, function(p){
+  name <- popnames[p] #which category are we on?
+  n <- popcounts[p] #how many to sample for this category?
+  #sample: only from the right category, same number as originally sampled for that category, 
+  #sample at random with replacement (same individual can be sampled multiple times)
+  resampled_rows <- sample(which(poplist== name), n, replace = TRUE) #specifically, which rows to take? 
+  #take randomized rows from the data table and from population list in tandem (need to match; could also recreate pops from sampling scheme itself, which is by species)
+  subsetdata <- ind_locus_table.df[resampled_rows,]
+  subsetpops <- poplist[resampled_rows]
+  
+  #for each category, returns a list with 2 things. 
+  #first is a df of data, second is a character vector with pop assignments
+  return(list(subsetdata, subsetpops))
+  })
+
+#extract output of lapply list of lists results [[species 1 alleles, species 1 pop assignments], ...]
+resampleddatalist <- lapply(listresults, function(sublist) {
+  sublist[[1]]}) #creates a list of dataframes
+
+resampledpoplist <- lapply(listresults, function(sublist) {
+  sublist[[2]]})#creates a list of character vectors
+
+#put different categories sampled back into a single dataframe
+resampled.df <- do.call("rbind", resampleddatalist)
+# put different pop assignments into a single list in order
+resampledpops <- unlist(resampledpoplist)
+
+#put back into a genind.
+reconvert.genind <- df2genind(resampled.df, sep="-", pop = resampledpops, ploidy=2, type="codom")
+
+print(sprintf("Done building bootstrapped dataset %s of %s", bootrep, bootreps))
+return(reconvert.genind)
+})
+
+
+```
+
+briefly check out that stuff.
+
+```{r}
+print(onethousanddatasets_by_species[7])
+print(onethousanddatasets_by_species[[1]])
+print(onethousanddatasets_by_species[999])
+data.class(onethousanddatasets_by_species[7])
+#annoying from a indexing perspective. dataset is a list with 1000 elements, each of them itself is a list, each sublist contains only one thing, a genind file.
+print(length(onethousanddatasets_by_species))
+print(length(onethousanddatasets_by_species[4]))
+data.class(onethousanddatasets_by_species[[7]])
+#bootstrapped data tends to have fewer total alleles per dataset, because some not sampled. evens out in grand scheme over many, all information is included. 
+
+filepath <- "1000_geninds_bootstrapped_match_sample_size_by_species_5_5_17.RData" 
+save(onethousanddatasets_by_species, file=filepath)
+
+
+```
+
+
+Then start popgen calculations.
+```{r}
+#For time's sake, only run first 100 for a start. 
+bootreps <- 100
+t0 <- Sys.time()
+testresults <- lapply(1:bootreps, function(bootrep){
+  ts <- Sys.time()
+  boot.genind <- onethousanddatasets_by_species[[bootrep]]
+  print(data.class(boot.genind))
+  boot.gtypes <- genind2gtypes(boot.genind)
+  boot_oT <- overallTest(boot.gtypes, nrep=1000)
+  boot_pT <- pairwiseTest(boot.gtypes, nrep=1000)
+  tf <- Sys.time()
+  print(sprintf("***Done with rep %s of %s, which took %s minutes. %s hours since start.***", bootrep, bootreps, format(as.numeric(tf-ts,units="mins"), digits=3), format(as.numeric(tf-t0,units="hours"), digits=3)))
+
+return(list(boot_oT, boot_pT))
+})
+
+filepath <- "100_bootstrapped_popgen_calcs_match_sample_size_by_species_5_5_17.RData" 
+save(testresults, file=filepath)
+
+
+
+```
+
+Because that was reasonable in time, try the full set, 1000 instead of 100. might finish over weekend.
+```{r}
+#For time's sake, only run first 100 for a start. 
+bootreps <- 1000
+t0 <- Sys.time()
+testresults <- lapply(1:bootreps, function(bootrep){
+  ts <- Sys.time()
+  boot.genind <- onethousanddatasets_by_species[[bootrep]]
+  print(data.class(boot.genind))
+  boot.gtypes <- genind2gtypes(boot.genind)
+  boot_oT <- overallTest(boot.gtypes, nrep=1000)
+  boot_pT <- pairwiseTest(boot.gtypes, nrep=1000)
+  tf <- Sys.time()
+  print(sprintf("***Done with rep %s of %s, which took %s minutes. %s hours since start.***", bootrep, bootreps, format(as.numeric(tf-ts,units="mins"), digits=3), format(as.numeric(tf-t0,units="hours"), digits=3)))
+
+return(list(boot_oT, boot_pT))
+})
+
+filepath <- "1000_bootstrapped_popgen_calcs_match_sample_size_by_species_5_5_17.RData" 
+save(testresults, file=filepath)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

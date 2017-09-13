@@ -1,0 +1,194 @@
+---
+title: "BayesAss_phacelia_analysis"
+author: "Jessie Berta-Thompson & Michelle DePrenger-Levin"
+date: "August 24, 2017"
+output: html_document
+---
+
+Load in libraries
+```{r}
+library(list)
+library(ggplot2)
+```
+
+
+Read in trace files produced by BayesAss, extract iteration number ("State") and log probability from each replicate run and each model, and output one dataframe containing all reps (labelled) for each model.
+```{r}
+#make a list of the directories containing the different models (BayesAss run with different population definitions)
+inputdir <- list.dirs("Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/BayesAss/12_runs", recursive=FALSE)
+print(sprintf("Found %i model directories.", length(inputdir)))
+
+#loop over the different population structures
+models_replicates <- lapply(1:length(inputdir), function(x){
+  modelnamesmash = strsplit(inputdir[x], "/")[[1]]
+  modelname = modelnamesmash[length(modelnamesmash)]
+
+  #make a list of directories within each model directory - these are the replicates
+  repdir <- list.dirs(inputdir[x], recursive = FALSE)
+  print(sprintf("Model directory %s contains %i replicate directories.",modelname, length(repdir)))
+  
+  #make a list containing the probability traces for all replicates within this model
+  trace <- lapply(1:length(repdir), function(y){
+    #read in data
+    out <- read.table(paste(repdir[y],"/BA3trace.txt",sep=""),header=TRUE)
+    #add a column to the dataset representing replicate number (order of loop doesn't match order of replicates)
+    whichrep = as.integer(strsplit(repdir[y],"rep")[[1]][2])
+    print(sprintf("Working on replicate %i.", whichrep))
+    out$rep <- whichrep
+    out$model <- modelname
+    #create a new dataframe which is just the subset of the full dataset needed for first pass assessment of convergence
+    OUT <- out[,c("State","LogProb","rep","model")]
+    OUT #return dataframe
+  })
+  
+  all <- do.call(rbind, trace)
+  all
+}
+)
+```
+
+#save that reorganized dataset
+```{r}
+getwd()
+save(models_replicates, file = "logprobabilitytraces_12models_20reps.Rdata")
+```
+
+Already started processing? load in file.
+```{r}
+rm(list=ls())
+print("Where are we? Where will new files without specified full path be created?")
+getwd()
+load("logprobabilitytraces_12models_20reps.Rdata")
+```
+
+Testing and set up to plot probability traces as a grid of plots
+```{r}
+model = models_replicates[[1]]$model[1]
+filename = paste(model, "20logprobabilitytraces.pdf", sep = "_")
+print(filename)
+pdf(filename, width = 16, height = 10)
+ggplot(models_replicates[[1]], aes(State,LogProb,group=rep))+
+  geom_line()+
+  facet_wrap(~rep)+
+  labs(x = "Iteration", y= "Log probability")+
+  theme(axis.text.x=element_text(angle=90,hjust=1))+
+  ggtitle(model)+
+  annotate("rect", xmin = 0, xmax = 3000000, ymin = -Inf, ymax = Inf, alpha = .2)
+dev.off()
+```
+
+
+Implementation for full dataset and refinement of plots
+```{r}
+for(i in 1:length(models_replicates)){
+  model = models_replicates[[i]]$model[1]
+  filename = paste(model, "20logprobabilitytraces.pdf", sep = "_")
+  print(filename)
+  theplot <- ggplot(models_replicates[[i]], aes(State,LogProb,group=rep))+
+    geom_line(size=0.2)+
+    expand_limits(x = 0)+
+    scale_x_continuous(expand = c(0, 0), limits = c(0,20000000))+
+    facet_wrap(~rep)+
+    labs(x = "Iteration", y= "Log probability")+
+    theme(axis.text.x=element_text(angle=90,hjust=1), strip.background = element_blank(), panel.spacing = unit(1.0, "lines"), plot.margin=unit(c(0.25,0.25,0.25,0.25),"in"))+
+    ggtitle(model)+
+    annotate("rect", xmin = 0, xmax = 3000000, ymin = -Inf, ymax = Inf, alpha = .2)
+
+  ggsave(file = filename, width = 16, height = 10, units = "in")
+}
+```
+And again as pngs (requires some adjustments to look ok)
+```{r}
+for(i in 1:length(models_replicates)){
+  model = models_replicates[[i]]$model[1]
+  filename = paste(model, "20logprobabilitytraces.png", sep = "_")
+  print(filename)
+  theplot <- ggplot(models_replicates[[i]], aes(State,LogProb,group=rep))+
+    geom_line(size = 0.2)+
+    expand_limits(x = 0)+
+    scale_x_continuous(expand = c(0, 0), limits = c(0,20000000))+
+    facet_wrap(~rep)+
+    labs(x = "Iteration", y= "Log probability")+
+    theme(axis.text.x=element_text(angle=90,hjust=1), strip.background = element_blank(), panel.spacing = unit(0.9, "lines"), plot.margin=unit(c(0.25,0.25,0.25,0.25),"in"))+
+    ggtitle(model)+
+    annotate("rect", xmin = 0, xmax = 3000000, ymin = -Inf, ymax = Inf, alpha = .2)
+
+  ggsave(file = filename, width = 10, height = 6, units = "in")
+}
+```
+
+Set up to plot traces as 20 together
+```{r}
+for(i in 1:length(models_replicates)){
+  model = models_replicates[[i]]$model[1]
+  filename = paste(model, "20logprobabilitytraces_oneplot.pdf", sep = "_")
+  print(filename)
+  ggplot(models_replicates[[i]], aes(State,LogProb,colour=as.factor(rep)))+
+    geom_line(size = 0.2)+
+    labs(x = "Iteration", y= "Log probability")+
+    expand_limits(x = 0)+
+    scale_x_continuous(expand = c(0, 0), limits = c(0,20000000))+
+    theme_bw()+
+    theme(axis.text.x=element_text(angle=90,hjust=1))+
+    ggtitle(model)+
+    annotate("rect", xmin = 0, xmax = 3000000, ymin = -Inf, ymax = Inf, alpha = .2)+
+    labs(colour = "Replicate\nRuns")
+
+  ggsave(file = filename, width = 11, height = 6, units = "in")
+}
+```
+
+pngs for above (20 on one plot)
+```{r}
+for(i in 1:length(models_replicates)){
+  model = models_replicates[[i]]$model[1]
+  filename = paste(model, "20logprobabilitytraces_oneplot.png", sep = "_")
+  print(filename)
+  ggplot(models_replicates[[i]], aes(State,LogProb,colour=as.factor(rep)))+
+    geom_line(size = 0.1)+
+    labs(x = "Iteration", y= "Log probability")+
+    expand_limits(x = 0)+
+    scale_x_continuous(expand = c(0, 0), limits = c(0,20000000))+
+    theme_bw()+
+    theme(axis.text.x=element_text(angle=90,hjust=1))+
+    ggtitle(model)+
+    annotate("rect", xmin = 0, xmax = 3000000, ymin = -Inf, ymax = Inf, alpha = .2)+
+    labs(colour = "Replicate\nRuns")
+
+  ggsave(file = filename, width = 11, height = 6, units = "in")
+}
+```
+
+ 
+ Additional trace analyses to do:
+ plot migration rates over time
+ plot correlations between parameters?
+ calculate estimated sample size (find R package)
+ extract mixing info from log files
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Michelle's tiff preferences
+```{r}
+ 
+  tiff(paste("Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/BayesAss/TracePlots","/dir",i,".tiff",sep=""),width = 100, height = 100, 
+       compression="lzw", units = "mm", res=1200)
+  
+  ggplot(models_replicates[[i]], aes(State,LogProb,group=rep))+
+  geom_line()+
+  facet_wrap(~rep)
+  
+  dev.off()
+
+}
+```
+
+
+
+

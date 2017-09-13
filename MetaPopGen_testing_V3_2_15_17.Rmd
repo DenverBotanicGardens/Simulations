@@ -1,0 +1,175 @@
+---
+title: "Building MetaPopGen for Phacelia"
+author: "Jessie Berta-Thompson"
+date: "February 15, 2017"
+output: html_document
+---
+
+Purpose of this version:
+Starting from  simple Island model example, setting up options that get closer to phacelia (with annotation), and running very simple ones to understand how steps work and output.
+
+Set up: clear history and make sure you're in a good working directory (files will be generated), load program.
+```{r}
+rm(list=ls())
+getwd()
+library(MetaPopGen)
+#setwd("Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/MetaPopGen")
+```
+
+
+# Part 1: Creating the initial dataset
+
+```{r}
+nind <- 20		# Initial number of individuals per age-class and genotype
+n <- 2		# Number of demes
+z <- 3		# Number of age classes
+l <- 3		# Number of alleles
+m <- 6		# Number of genotypes
+tmax <- 5		# Number of years of simulation
+
+	# Initialize matrices that will hold survival and reproduction rates
+	# This initialises the variables using the correct sizes for each dimension
+  # Dimensions = Genotypes x Demes x Ages x Time
+		sigma <- array(NA,dim=c(m,n,z,tmax)) #survival 
+		phi_M <- array(0,dim=c(m,n,z,tmax)) #male fecundity
+		phi_F <- array(0,dim=c(m,n,z,tmax)) #female fecundity
+
+	# This assigns values to the variables
+		sigma[,,,] <- 1 #survival is 100%
+		phi_M[,,,] <- 1 #Males make 1 pollen grain each
+		phi_F[,,,] <- 2 #Females make 2 ovules
+
+	# Dispersal matrix
+	m.m <- 0.1
+	delta <- matrix(rep(m.m/(n-1),n^2),nrow=n,ncol=n)
+	diag(delta)<-rep((1-m.m),n)
+#seeds (next year's age class 1 move around before settled)
+	
+	# Initial population structure
+	# Genotypes number are assigned at random, by drawing the number of individuals of each genotype from a uniform distribution between [0,nind/m]
+		N1 <- array(NA,dim=c(m,n,z))		# Initial number of individuals for [genotypes * demes * ages]
+
+		for (deme in 1 : n){
+			for (age in 1 : z) {
+				for (genotype in 1 : m) {
+					N1[genotype,deme,age] <- nind 
+					#seems like it's just assigning the number to each - not drawn from, but assigned.
+				}
+			}
+		}
+
+	# Mutation matrix
+		mu <- array(1e-6,dim=c(l,l))
+		mu[1,1] <- 1 - mu[2,1]
+		mu[2,2] <- 1 - mu[1,2]
+  #2 alleles in diploid genotype - each can stay the same or change. 
+		
+		
+	# Maximum recruitment
+		kappa0 <- array(Inf,c(n,tmax))
+  #Juvenile Carrying Capacity = infinity for now; after reproducting, how many age class 1 will make it to next year's starting Age 1
+		
+		
+	# Save dataset
+		save(sigma,N1,phi_M,phi_F,mu,delta,kappa0,tmax,
+		     file="Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/MetaPopGen/test_V1_2_15_17.RData")
+```
+
+#############################################################################################
+# Perform the simulation
+#############################################################################################
+
+	library(MetaPopGen)
+```{r}
+	# Clear the workspace
+		rm(list=ls())
+
+	# Load dataset (created in Part 1)
+		load("Q:/Research/All_Projects_by_Species/Phacelia SPECIES/Phacelia_formosula/Phacelia formosula_abiotic/Modelling/MetaPopGen/test_V1_2_15_17.RData")
+
+	# Simulation
+		nrepl <- 1
+
+
+	# Create the array for fst
+		fst <- array(NA,dim=c(nrepl,tmax))
+	
+	# Run the simulations
+	for (i in 1 : nrepl) {
+	  
+	  cat("Replicate",i,"\n") # Just to print on screen the advancement of the simulation
+	  
+	  N<-sim.metapopgen.monoecious(
+		input.type="array",
+		N1 = N1, sigma = sigma,
+		phi_M = phi_M, phi_F = phi_F,
+		mu = mu, delta = delta, kappa0 = kappa0,
+		T_max = tmax,
+		save.res = F)
+		
+		flush.console()
+		
+		# Calculate Fst
+		print("Calculating fst...")
+		for (t in 1 : tmax){
+			fst[i,t] <- fst.global.monoecious(N,t)
+		}
+		
+
+	}
+
+```		
+
+Working to understand output.
+```{r}
+#N is a new object 6 * 2 * 3 * 5 [genotypes * demes * ages * times]
+print(dim(N))
+
+#look at just one deme, each time individually - should be a matrix with genotypes vs age classes
+year1 = N[,2,,1] #everything for time 1
+year2 = N[,2,,2] #everything for time 2
+year3 = N[,2,,3] #everything for time 2
+year4 = N[,2,,4] #everything for time 2
+year5 = N[,2,,5] #everything for time 2
+
+print('Year 1')
+print(year1)
+
+print('Year 2')
+print(year2)
+
+print('Year 3')
+print(year3)
+
+print('Year 4')
+print(year4)
+
+print('Year 5')
+print(year5)
+
+
+
+```
+
+Interpret these results:
+year 1 to year 2:
+only age class 1 changed.
+some went up, some went down.
+New ones created(with randomness) and no old ones stay in age class 1
+maybe old age class 1 moved up to 2, old age class 2 moved up to 3
+moving up might happen in first step or might in last step? which value gets multiplied to govern reproduction?
+
+
+
+
+Calculations
+```{r}
+# Meand and standard deviation of FST
+mean(fst[,100:tmax]) # because reached stable Fst after ca 50 generations?
+sd(fst[,100:tmax])
+
+# Expected value for FST
+Ne <- 3000
+m.m <- 0.1
+fst.exp <- 1/(1 + 4 * Ne * (m.m))
+```
